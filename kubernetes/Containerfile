@@ -1,3 +1,14 @@
+## Build from the application root:
+## podman build -f kubernetes/Containerfile -t dkypuros-texter:latest .
+
+FROM docker.io/library/node:22-bookworm-slim AS frontend
+
+WORKDIR /build/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 ## ---------------------------------------------------------------------------
 ## Builder Container
 ## ---------------------------------------------------------------------------
@@ -15,15 +26,15 @@ RUN dnf install -y dnf-plugins-core && \
       gzip \
       make \
       openssl-devel \
-      python3 \
-      python3-devel \
-      python3-pip \
-      python3-setuptools \
-      python3-wheel \
+      python3.11 \
+      python3.11-devel \
+      python3.11-pip \
       swig \
       tar && \
     dnf clean all && \
     rm -rf /var/cache/dnf
+
+RUN python3.11 -m pip install --no-cache-dir setuptools wheel
 
 WORKDIR /build
 
@@ -47,8 +58,8 @@ RUN ./configure \
   ## Build the PJSUA2 Python bindings as a wheel so they can be COPY'd at a later stage.
 WORKDIR /build/pjproject/pjsip-apps/src/swig/python
 
-RUN make && \
-    python3 setup.py bdist_wheel && \
+RUN make PYTHON_EXE=python3.11 && \
+    python3.11 setup.py bdist_wheel && \
     mkdir -p /build/wheels && \
     cp dist/*.whl /build/wheels/
 
@@ -69,7 +80,6 @@ FROM quay.io/centos/centos:stream9
   ## bringing compiler/development packages into the runtime image.
 RUN dnf install -y \
       bash \
-      nc \
       tcpdump \
       ca-certificates \
       iproute \
@@ -77,8 +87,8 @@ RUN dnf install -y \
       libstdc++ \
       nmap-ncat \
       openssl-libs \
-      python3 \
-      python3-pip && \
+      python3.11 \
+      python3.11-pip && \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
@@ -87,7 +97,7 @@ WORKDIR /app
   ## Install the PJSUA2 wheel produced by the builder.
 COPY --from=builder /build/wheels /tmp/wheels
 
-RUN python3 -m pip install \
+RUN python3.11 -m pip install \
       --no-cache-dir \
       /tmp/wheels/*.whl && \
     rm -rf /tmp/wheels
@@ -96,17 +106,18 @@ RUN python3 -m pip install \
   ## cacheable while application source changes.
 COPY requirements.txt /app/requirements.txt
 
-RUN python3 -m pip install \
+RUN python3.11 -m pip install \
       --no-cache-dir \
       -r /app/requirements.txt
 
   ## Application.
-COPY check-ims.sh /app/bin/check-ims.sh
-COPY app.py /app/app.py
-COPY templates /app/templates
+COPY kubernetes/bin/check-ims.sh /app/bin/check-ims.sh
+COPY app/ /app/app/
+COPY wsgi.py /app/wsgi.py
+COPY --from=frontend /build/frontend/dist/browser /app/frontend/dist/browser
 
 RUN chmod +x /app/bin/check-ims.sh
 
 EXPOSE 8080
 
-CMD ["python3", "/app/app.py"]
+CMD ["python3.11", "-m", "gunicorn", "--bind", "0.0.0.0:8080", "wsgi:app"]

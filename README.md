@@ -35,6 +35,19 @@ gunicorn --bind 127.0.0.1:8000 wsgi:app
 
 Flask CLI loads `.env` automatically. With Gunicorn, export `DATABASE_URL` in the process environment if overriding the default. This is a local demo with no authentication; add access controls before exposing it beyond a trusted lab.
 
+## Container build and run
+
+Run from the application (repository) root; the final `.` supplies the build context:
+
+```sh
+podman build -f kubernetes/Containerfile -t dkypuros-texter:latest .
+podman volume create texter-data
+podman run --rm -v texter-data:/app/instance dkypuros-texter:latest python3.11 -m flask --app app db init
+podman run --rm -p 8080:8080 -v texter-data:/app/instance dkypuros-texter:latest
+```
+
+The image builds the Angular frontend and PJSUA2 bindings, installs Python 3.11 dependencies, and runs Gunicorn with the `wsgi:app` entry point on port 8080. Open http://127.0.0.1:8080. The named volume preserves the default SQLite database across container runs. The IMS listener still requires a separate explicit command.
+
 ## REST API
 
 All API routes use `/api/v1` and return JSON, including HTTP errors (`{"error":{"code":400,"message":"..."}}`).
@@ -97,7 +110,7 @@ requirements.txt          Runtime Python dependencies
 requirements-dev.txt      Test dependencies
 ```
 
-All HTTP routes, asset serving, and application CLI functionality belong to blueprints; the factory only configures and assembles the app. No container build files are needed or modified by this scaffold.
+All HTTP routes, asset serving, and application CLI functionality belong to blueprints; the factory only configures and assembles the app.
 
 For real IMS integration, extend `app/services/messaging.py` with a worker queue connected to the PJSUA2 transport and configured IMS credentials. Add delivery status tracking, timeouts, idempotency, and a background job queue before introducing configurable rate, concurrency, or duration for load runs. Do not run long load-generation loops inside Flask request handlers. Add schema migrations when the model evolves.
 

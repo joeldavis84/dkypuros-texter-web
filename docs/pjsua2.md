@@ -12,7 +12,7 @@ The listener emits JSON registration, incoming-message, and message-status event
 
 ## Native dependency
 
-PJSUA2 is not a normal pure-Python dependency. Build a selected PJPROJECT release and its official Python SWIG bindings for the same Python interpreter/ABI used by this application. Native build tools, SWIG, Python development headers, and PJPROJECT dependencies are required. Follow the upstream build instructions, including `-fPIC` on Linux and installation into the active virtual environment. This repository does not download or build native libraries automatically, and does not pin an unverified third-party PyPI wrapper.
+PJSUA2 is not a normal pure-Python dependency. Build a selected PJPROJECT release and its official Python SWIG bindings for the same Python interpreter/ABI used by this application. Native build tools, SWIG, Python development headers, and PJPROJECT dependencies are required. Follow the upstream build instructions, including `-fPIC` on Linux and installation into the active virtual environment. The container build in `kubernetes/Containerfile` builds the native bindings for Python 3.11; local installations must build them separately. The repository does not pin an unverified third-party PyPI wrapper.
 
 Verify within the active virtual environment:
 
@@ -43,7 +43,7 @@ The deployment topology is one pod containing this application and the UE softmo
 
 PJSUA2 sends SIP toward the IMS network/P-CSCF using the shared namespace's routing table. The softmodem/network setup must establish the PDU session and routes for IMS traffic; the application does not create those interfaces or routes. Binding the wildcard address allows listening before the UE interface appears, but does not establish connectivity or registration readiness. Start registration after the UE data path is ready.
 
-The wildcard listening address is not an advertised SIP contact address. Verify that SIP Contact/Via and the IMS return route use the reachable UE PDU-session IP and UDP/5062, especially when the pod also has a cluster interface. Automatic contact selection and live IMS routing have not yet been validated; explicit advertised-address configuration remains future integration work if needed. No deployment manifests or container build files were changed.
+The wildcard listening address is not an advertised SIP contact address. Verify that SIP Contact/Via and the IMS return route use the reachable UE PDU-session IP and UDP/5062, especially when the pod also has a cluster interface. Automatic contact selection and live IMS routing have not yet been validated; explicit advertised-address configuration remains future integration work if needed.
 
 Remaining IMS-specific work includes:
 
