@@ -1,0 +1,6 @@
+@import "tailwindcss";
+@source "./";
+body { margin: 0; background: #f8fafc; color: #0f172a; font-family: system-ui, sans-serif; }
+input, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: .5rem; padding: .75rem; margin-top: .4rem; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .6; }
