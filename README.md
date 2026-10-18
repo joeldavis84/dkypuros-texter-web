@@ -114,3 +114,9 @@ npm run build
 Tests use an isolated in-memory database and cover request persistence, validation, pagination, errors, blueprint registration, database CLI, and frontend serving.
 
 Framework references: [Flask factories](https://flask.palletsprojects.com/en/stable/patterns/appfactories/), [Flask-SQLAlchemy](https://flask-sqlalchemy.palletsprojects.com/en/stable/quickstart/), [Angular compatibility](https://angular.dev/reference/versions), and [Tailwind with Angular](https://tailwindcss.com/docs/installation/framework-guides/angular).
+
+## Preliminary PJSUA2 support
+
+An optional PJSUA2 adapter and `flask --app app ims check` / `ims listen` commands provide configuration validation, a dedicated SIP event loop, registration, and receive/status callbacks. A transport interface and text SIP send primitive are available for future worker integration. The REST API remains simulation-only. See [PJSUA2 setup, architecture, and remaining IMS work](docs/pjsua2.md); native bindings are installed separately from `requirements.txt`.
+
+The IMS listener defaults to **UDP/5062 on all IPv4 interfaces (`0.0.0.0`)** in the network namespace shared with the Duranta softmodem sidecar. Run it explicitly with `flask --app app ims listen`; starting Flask alone does not start the listener. Existing environment overrides take precedence.

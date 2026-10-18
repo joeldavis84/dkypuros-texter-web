@@ -14,6 +14,11 @@ def create_app(test_config=None):
         MAX_CONTENT_LENGTH=16 * 1024,
         FRONTEND_DIST=Path(__file__).resolve().parent.parent / "frontend/dist/browser",
     )
+    from .ims.config import SipSettings
+    for name, field in SipSettings.__dataclass_fields__.items():
+        default = '' if name == 'account_uri' else field.default
+        value = os.getenv('IMS_' + name.upper(), default)
+        app.config['IMS_' + name.upper()] = value
     if test_config:
         app.config.update(test_config)
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
@@ -23,6 +28,9 @@ def create_app(test_config=None):
     from .blueprints.web import web
     from .blueprints.database import database
 
+    from .blueprints.ims import ims
+
+    app.register_blueprint(ims)
     app.register_blueprint(api)
     app.register_blueprint(web)
     app.register_blueprint(database)
