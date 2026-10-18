@@ -1,7 +1,12 @@
 ## Build from the application root:
 ## podman build -f kubernetes/Containerfile -t dkypuros-texter:latest .
 
-FROM docker.io/library/node:22-bookworm-slim AS frontend
+FROM quay.io/centos/centos:stream9 AS frontend
+
+RUN dnf module enable -y nodejs:22 && \
+    dnf install -y nodejs npm && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
 
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
