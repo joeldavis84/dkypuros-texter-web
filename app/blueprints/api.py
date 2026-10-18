@@ -16,7 +16,7 @@ def http_error(error):
 
 @api.get("/health")
 def health():
-    return jsonify(status="ok", service="duranta-ims-texter", mode="simulation")
+    return jsonify(status="ok", service="5g-ims-automation", mode="simulation")
 
 
 @api.get("/messages")

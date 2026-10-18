@@ -39,7 +39,7 @@ The explicit listen command opens sockets and may send REGISTER traffic. Normal 
 
 ## Connecting through the OAI UE
 
-The deployment topology is one pod containing this application and the Duranta softmodem sidecar, using `docker.io/oaisoftwarealliance/oai-nr-ue:2026.w39`. Both containers share the same network namespace, interfaces, routes, and port space. The application receives IMS traffic directly on UDP/5062 through the UE's PDU-session interface. There is no separate sidecar hostname, TCP control connection, or sidecar SMS API in this design. Only one process in the pod should bind this SIP port.
+The deployment topology is one pod containing this application and the UE softmodem sidecar, using `docker.io/oaisoftwarealliance/oai-nr-ue:2026.w39`. Both containers share the same network namespace, interfaces, routes, and port space. The application receives IMS traffic directly on UDP/5062 through the UE's PDU-session interface. There is no separate sidecar hostname, TCP control connection, or sidecar SMS API in this design. Only one process in the pod should bind this SIP port.
 
 PJSUA2 sends SIP toward the IMS network/P-CSCF using the shared namespace's routing table. The softmodem/network setup must establish the PDU session and routes for IMS traffic; the application does not create those interfaces or routes. Binding the wildcard address allows listening before the UE interface appears, but does not establish connectivity or registration readiness. Start registration after the UE data path is ready.
 

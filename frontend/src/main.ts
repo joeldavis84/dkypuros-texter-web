@@ -9,9 +9,9 @@ interface Message { id: number; sender: string; recipient: string; body: string;
   selector: 'app-root', standalone: true, imports: [FormsModule],
   template: `
     <main class="mx-auto max-w-5xl px-6 py-12">
-      <header class="mb-10"><p class="text-sm font-semibold uppercase tracking-widest text-teal-700">Duranta / IMS lab</p>
-        <h1 class="mt-3 text-4xl font-bold">IMS text messaging</h1>
-        <p class="mt-3 text-slate-600">Prepare message requests for your Duranta demo.</p>
+      <header class="mb-10"><p class="text-sm font-semibold uppercase tracking-widest text-teal-700">5G / Network automation</p>
+        <h1 class="mt-3 text-4xl font-bold">5G messaging automation</h1>
+        <p class="mt-3 text-slate-600">Explore IMS messaging workflows for 5G network automation.</p>
       </header>
       <p class="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">Simulation mode — requests are saved locally. No IMS messages are transmitted.</p>
       <p role="alert" class="mb-4 text-red-700">{{ error() }}</p>

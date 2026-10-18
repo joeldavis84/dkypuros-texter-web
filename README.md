@@ -1,8 +1,8 @@
-# Duranta IMS Texter
+# 5G Network Automation
 
-A basic Flask application for an eventual Duranta IMS text messaging demo. The repository root is the application source root. Flask serves an Angular 21 frontend styled with Tailwind CSS 4, and Flask-SQLAlchemy uses SQLAlchemy 2 to persist message requests.
+A Flask application for exploring 5G network automation, with IMS text messaging as the initial workflow. The repository root is the application source root. Flask serves an Angular 21 frontend styled with Tailwind CSS 4, and Flask-SQLAlchemy uses SQLAlchemy 2 to persist message requests.
 
-**This scaffold only simulates messaging:** requests are stored with `status: simulated`. It does not connect to Duranta, transmit IMS messages, or generate network load yet.
+**This scaffold only simulates messaging:** requests are stored with `status: simulated`. The web and REST workflows do not transmit IMS messages or generate network load yet.
 
 ## Local setup
 
@@ -41,7 +41,7 @@ All API routes use `/api/v1` and return JSON, including HTTP errors (`{"error":{
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | Process liveness and simulation mode (not database/Duranta readiness) |
+| GET | `/health` | Process liveness and simulation mode (not database/IMS readiness) |
 | POST | `/messages` | Save one simulated request; returns 201 and a `Location` header |
 | GET | `/messages?limit=20&offset=0` | Newest requests first; limit 1–100, offset ≥ 0 |
 | GET | `/messages/<id>` | Retrieve one request; 404 if absent |
@@ -51,7 +51,7 @@ Create a request with curl:
 ```sh
 curl --fail-with-body http://127.0.0.1:5000/api/v1/messages \
   -H 'Content-Type: application/json' \
-  -d '{"sender":"sip:alice@example.test","recipient":"sip:bob@example.test","body":"Hello from Duranta"}'
+  -d '{"sender":"sip:alice@example.test","recipient":"sip:bob@example.test","body":"Hello from the 5G automation lab"}'
 
 curl --fail-with-body 'http://127.0.0.1:5000/api/v1/messages?limit=10'
 ```
@@ -89,7 +89,7 @@ app/
     api.py                Versioned REST API and HTTP error handling
     web.py                Built Angular page and asset serving
     database.py           Database initialization CLI
-  services/messaging.py   Simulation service / future Duranta adapter boundary
+  services/messaging.py   Simulation service / future IMS adapter boundary
 frontend/                 Angular application and Tailwind build configuration
 tests/                    Backend API and application tests
 wsgi.py                   WSGI entry point
@@ -99,7 +99,7 @@ requirements-dev.txt      Test dependencies
 
 All HTTP routes, asset serving, and application CLI functionality belong to blueprints; the factory only configures and assembles the app. No container build files are needed or modified by this scaffold.
 
-For real IMS integration, extend `app/services/messaging.py` with the agreed Duranta REST contract and credentials. Add delivery status tracking, timeouts, idempotency, and a background job queue before introducing configurable rate, concurrency, or duration for load runs. Do not run long load-generation loops inside Flask request handlers. Add schema migrations when the model evolves.
+For real IMS integration, extend `app/services/messaging.py` with a worker queue connected to the PJSUA2 transport and configured IMS credentials. Add delivery status tracking, timeouts, idempotency, and a background job queue before introducing configurable rate, concurrency, or duration for load runs. Do not run long load-generation loops inside Flask request handlers. Add schema migrations when the model evolves.
 
 ## Tests
 
@@ -119,4 +119,4 @@ Framework references: [Flask factories](https://flask.palletsprojects.com/en/sta
 
 An optional PJSUA2 adapter and `flask --app app ims check` / `ims listen` commands provide configuration validation, a dedicated SIP event loop, registration, and receive/status callbacks. A transport interface and text SIP send primitive are available for future worker integration. The REST API remains simulation-only. See [PJSUA2 setup, architecture, and remaining IMS work](docs/pjsua2.md); native bindings are installed separately from `requirements.txt`.
 
-The IMS listener defaults to **UDP/5062 on all IPv4 interfaces (`0.0.0.0`)** in the network namespace shared with the Duranta softmodem sidecar. Run it explicitly with `flask --app app ims listen`; starting Flask alone does not start the listener. Existing environment overrides take precedence.
+The IMS listener defaults to **UDP/5062 on all IPv4 interfaces (`0.0.0.0`)** in the network namespace shared with the UE softmodem sidecar. Run it explicitly with `flask --app app ims listen`; starting Flask alone does not start the listener. Existing environment overrides take precedence.
