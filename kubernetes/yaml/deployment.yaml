@@ -16,6 +16,9 @@ spec:
         app: duranta-ue1
 
     spec:
+
+      serviceAccountName: duranta-ue
+
       ## Render the subscriber-specific nr-ue.conf before the UE starts.
       initContainers:
         - name: render-nr-ue-config
