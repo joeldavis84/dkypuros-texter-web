@@ -1,0 +1,112 @@
+## ---------------------------------------------------------------------------
+## Builder Container
+## ---------------------------------------------------------------------------
+
+FROM quay.io/centos/centos:stream9 AS builder
+
+ARG pjprojectVersion=2.16
+
+RUN dnf install -y dnf-plugins-core && \
+    dnf config-manager --set-enabled crb && \
+    dnf install -y \
+      ca-certificates \
+      gcc \
+      gcc-c++ \
+      gzip \
+      make \
+      openssl-devel \
+      python3 \
+      python3-devel \
+      python3-pip \
+      python3-setuptools \
+      python3-wheel \
+      swig \
+      tar && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+WORKDIR /build
+
+  ## Fetch PJPROJECT.
+RUN curl -fsSL \
+      "https://github.com/pjsip/pjproject/archive/refs/tags/${pjprojectVersion}.tar.gz" \
+      -o pjproject.tar.gz && \
+    tar -xzf pjproject.tar.gz && \
+    mv "pjproject-${pjprojectVersion}" pjproject
+
+WORKDIR /build/pjproject
+
+  ## Build only what the "Texter" application needs.
+RUN ./configure \
+      CFLAGS="-fPIC" \
+      --disable-sound \
+      --disable-video && \
+    make dep && \
+    make -j"$(nproc)"
+
+  ## Build the PJSUA2 Python bindings as a wheel so they can be COPY'd at a later stage.
+WORKDIR /build/pjproject/pjsip-apps/src/swig/python
+
+RUN make && \
+    python3 setup.py bdist_wheel && \
+    mkdir -p /build/wheels && \
+    cp dist/*.whl /build/wheels/
+
+
+## ---------------------------------------------------------------------------
+## Runtime Container
+## ---------------------------------------------------------------------------
+
+FROM quay.io/centos/centos:stream9
+
+  ## Runtime dependencies only.
+  ##
+  ## iproute:    check-ims.sh uses `ip -j`
+  ## jq:         parses interface/address information
+  ## nmap-ncat:  provides `nc` for the SIP OPTIONS health check
+  ##
+  ## libstdc++ and openssl-libs satisfy native PJSUA2 dependencies without
+  ## bringing compiler/development packages into the runtime image.
+RUN dnf install -y \
+      bash \
+      nc \
+      tcpdump \
+      ca-certificates \
+      iproute \
+      jq \
+      libstdc++ \
+      nmap-ncat \
+      openssl-libs \
+      python3 \
+      python3-pip && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+WORKDIR /app
+
+  ## Install the PJSUA2 wheel produced by the builder.
+COPY --from=builder /build/wheels /tmp/wheels
+
+RUN python3 -m pip install \
+      --no-cache-dir \
+      /tmp/wheels/*.whl && \
+    rm -rf /tmp/wheels
+
+  ## Install Python application dependencies separately so this layer remains
+  ## cacheable while application source changes.
+COPY requirements.txt /app/requirements.txt
+
+RUN python3 -m pip install \
+      --no-cache-dir \
+      -r /app/requirements.txt
+
+  ## Application.
+COPY check-ims.sh /app/bin/check-ims.sh
+COPY app.py /app/app.py
+COPY templates /app/templates
+
+RUN chmod +x /app/bin/check-ims.sh
+
+EXPOSE 8080
+
+CMD ["python3", "/app/app.py"]
