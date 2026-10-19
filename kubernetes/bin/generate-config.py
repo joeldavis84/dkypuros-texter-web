@@ -33,6 +33,10 @@ randomIMSI=generateImsi()
 staticKey="00112233445566778899aabbccddeeff"
 staticOPC="63bfa50ee6523365ff14c1f45f88737d"
 
+  ## Allow temporary overrides to dynamic IMSI generation
+if "IMSI" in os.environ.keys():
+  randomIMSI=os.environ["IMSI"]
+
 ueConfig = f"""
 uicc0 = {{
 
