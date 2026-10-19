@@ -22,7 +22,8 @@ spec:
       ## Render the subscriber-specific nr-ue.conf before the UE starts.
       initContainers:
         - name: render-nr-ue-config
-          image: registry.example.com/duranta/nr-ue-config-renderer:latest
+          image: quay.io/jodavis/dkypuros-texter:latest
+          command: ["/app/bin/render-nr-ue-config.py"]
 
           env:
 

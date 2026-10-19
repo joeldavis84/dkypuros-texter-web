@@ -48,6 +48,10 @@ podman run --rm -p 8080:8080 -v texter-data:/app/instance dkypuros-texter:latest
 
 The image builds the Angular frontend and PJSUA2 bindings, installs Python 3.11 dependencies, and runs Gunicorn with the `wsgi:app` entry point on port 8080. Open http://127.0.0.1:8080. The named volume preserves the default SQLite database across container runs. The IMS listener still requires a separate explicit command.
 
+The same image also supplies `/app/bin/render-nr-ue-config.py` for the Kubernetes init container. `kubernetes/yaml/deployment.yaml` overrides `command` to run it before the UE starts. It reads the full template from `templatePath` and writes the rendered configuration to `outputPath` (respectively `/template/nr-ue.conf.tmpl` and `/generated/nr-ue.conf` in the deployment).
+
+Provide the `nr-ue-config-template` ConfigMap with an `nr-ue.conf.tmpl` key containing your complete UE configuration. Use `$imsi`, `$imei`, `$key`, `$opc`, `$mcc`, and `$mnc` placeholders (or `${imsi}`-style braces) wherever subscriber values belong, and `$$` for a literal dollar sign. Values come from the identically named, case-sensitive environment variables and retain leading zeros. The renderer requires all six values and both paths, and fails on missing values or invalid/unknown placeholders. All other template content is preserved.
+
 ## REST API
 
 All API routes use `/api/v1` and return JSON, including HTTP errors (`{"error":{"code":400,"message":"..."}}`).

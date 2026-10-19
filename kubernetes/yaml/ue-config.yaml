@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nr-ue-config-template
+  namespace: duranta
+data:
+  nr-ue.conf.tmpl: |
+    uicc0 = {
+      imsi = "${imsi}";
+      key = "${key}";
+      opc = "${opc}";
+
+      pdu_sessions = (
+        {
+          id = 1;
+          dnn = "oai";
+          type = "IPv4";
+          nssai_sst = 1;
+          nssai_sd = 0xffffff;
+        },
+        {
+          id = 2;
+          dnn = "ims";
+          type = "IPv4";
+          nssai_sst = 1;
+          nssai_sd = 0xffffff;
+        }
+      );
+
+    }
