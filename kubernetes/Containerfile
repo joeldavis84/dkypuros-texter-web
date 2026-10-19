@@ -117,12 +117,12 @@ RUN python3.11 -m pip install \
 
   ## Application.
 COPY kubernetes/bin/check-ims.sh /app/bin/check-ims.sh
-COPY kubernetes/bin/render-nr-ue-config.py /app/bin/render-nr-ue-config.py
+COPY kubernetes/bin/generate-config.py /app/bin/generate-config.py
 COPY app/ /app/app/
 COPY wsgi.py /app/wsgi.py
 COPY --from=frontend /build/frontend/dist/browser /app/frontend/dist/browser
 
-RUN chmod +x /app/bin/check-ims.sh /app/bin/render-nr-ue-config.py
+RUN chmod +x /app/bin/check-ims.sh /app/bin/generate-config.py
 
 EXPOSE 8080
 

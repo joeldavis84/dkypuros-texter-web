@@ -48,9 +48,9 @@ podman run --rm -p 8080:8080 -v texter-data:/app/instance dkypuros-texter:latest
 
 The image builds the Angular frontend and PJSUA2 bindings, installs Python 3.11 dependencies, and runs Gunicorn with the `wsgi:app` entry point on port 8080. Open http://127.0.0.1:8080. The named volume preserves the default SQLite database across container runs. The IMS listener still requires a separate explicit command.
 
-The same image also supplies `/app/bin/render-nr-ue-config.py` for the Kubernetes init container. `kubernetes/yaml/deployment.yaml` overrides `command` to run it before the UE starts. It reads the full template from `templatePath` and writes the rendered configuration to `outputPath` (respectively `/template/nr-ue.conf.tmpl` and `/generated/nr-ue.conf` in the deployment).
+The image supplies `/app/bin/render-nr-ue-config.py` as a self-contained init-container command. On every invocation it constructs the full UE configuration template, substitutes `imsi`, `key`, and `opc` from the container environment, and overwrites `outputPath` (`/generated/nr-ue.conf`). Both PDU sessions from the reference configuration are preserved. No input template file or ConfigMap is needed at runtime. The shared `generated-ue-config` volume exposes the rendered file to the OAI container at `/opt/oai-nr-ue/etc/nr-ue.conf`.
 
-Provide the `nr-ue-config-template` ConfigMap with an `nr-ue.conf.tmpl` key containing your complete UE configuration. Use `$imsi`, `$imei`, `$key`, `$opc`, `$mcc`, and `$mnc` placeholders (or `${imsi}`-style braces) wherever subscriber values belong, and `$$` for a literal dollar sign. Values come from the identically named, case-sensitive environment variables and retain leading zeros. The renderer requires all six values and both paths, and fails on missing values or invalid/unknown placeholders. All other template content is preserved.
+`kubernetes/yaml/deployment.yaml` overrides `command` to run the renderer before the UE starts. The renderer requires the six subscriber/PLMN environment variables declared there and `outputPath`; the reference configuration currently uses only `imsi`, `key`, and `opc`. Each init-container invocation reads the current environment, including when a previous output file exists. To change the configuration structure, edit the template inside the script and rebuild the image.
 
 ## REST API
 
