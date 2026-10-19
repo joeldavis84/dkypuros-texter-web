@@ -9,11 +9,11 @@ sipIdentity="${sipIdentity:-user1}"
 sipDomain="${sipDomain:-dkypuros}"
 
 info() {
-  printf '[check-ims] %s\n' "$*"
+  printf '$(date +"(%m-%d %H:%M:%S)") [check-ims] %s\n' "$*"
 }
 
 error() {
-  printf '[check-ims] ERROR: %s\n' "$*" >&2
+  printf '$(date +"(%m-%d %H:%M:%S)") [check-ims] ERROR: %s\n' "$*" >&2
 }
 
 ## IMS health checking is optional.
