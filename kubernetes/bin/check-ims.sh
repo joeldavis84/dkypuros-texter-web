@@ -70,7 +70,7 @@ response="$(
       "${sipDomain}" \
       "${callId}"
 
-    sleep 1
+    sleep 3
   } |
     nc \
       -u \
