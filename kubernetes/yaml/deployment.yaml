@@ -52,7 +52,7 @@ spec:
           ## TODO: Please replace with a downstream image that takes variable information more consistently through env.
           ##       right now it's a mixture of environment variables, flat files, and command line options for a single 
           ##       source of truth
-        - name: ue-softmodem
+        - name: softmodem
           image: docker.io/oaisoftwarealliance/oai-nr-ue:2026.w39
 
           args:
@@ -148,7 +148,7 @@ spec:
                 - /bin/bash
                 - /app/bin/check-ims.sh
             periodSeconds: 5
-            timeoutSeconds: 3
+            timeoutSeconds: 5
             failureThreshold: 4
 
             ## For the initial implementation, readiness and liveness use
@@ -159,7 +159,7 @@ spec:
                 - /bin/bash
                 - /app/bin/check-ims.sh
             periodSeconds: 5
-            timeoutSeconds: 3
+            timeoutSeconds: 5
             failureThreshold: 2
 
       volumes:
