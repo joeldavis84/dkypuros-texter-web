@@ -1,8 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: duranta-ue1
+  name: texter-web
   namespace: duranta
+  annotations:
+    openshift.io/scc: "privileged"
 spec:
   replicas: 1
 
@@ -23,9 +25,11 @@ spec:
       initContainers:
         - name: render-nr-ue-config
           image: quay.io/jodavis/dkypuros-texter:latest
-          command: ["/app/bin/render-nr-ue-config.py"]
+          command: ["/app/bin/generate-config.py"]
 
           env:
+            - name: "IMSI"
+              value: "001010100000002"
 
               ## A valid configuration with a randomized IMSI will be built from the number in the spoke name
             - name: nodeName
@@ -50,6 +54,15 @@ spec:
           ##       source of truth
         - name: ue-softmodem
           image: docker.io/oaisoftwarealliance/oai-nr-ue:2026.w39
+
+          args:
+          - RFSIM_IP_ADDRESS=$(getent hosts $RFSIM_HOST | awk '{print $1}'); RFSIM_IP_ADDRESS=$(if
+            [[ $RFSIM_IP_ADDRESS ]]; then echo $RFSIM_IP_ADDRESS; else echo $RFSIM_HOST;fi);
+            exec /opt/oai-nr-ue/bin/nr-uesoftmodem -O /opt/oai-nr-ue/etc/nr-ue.conf
+            $USE_ADDITIONAL_OPTIONS --rfsimulator.serveraddr $RFSIM_IP_ADDRESS;
+          command:
+          - /bin/bash
+          - -c
           env:
           - name: TZ
             value: America/New_York
@@ -59,18 +72,21 @@ spec:
             value: oai-ran
           - name: OAI_GDBSTACKS
             value: "1"
+
           securityContext:
-            capabilities:
-              add:
-              - NET_ADMIN
-              - NET_RAW
-              - SYS_NICE
-              - IPC_LOCK
-              drop:
-              - ALL
             privileged: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_ADMIN
+                - NET_RAW
+                - SYS_NICE
+                - IPC_LOCK
 
           volumeMounts:
+            - name: tun-device
+              mountPath: /dev/net/tun
             - name: generated-ue-config
               mountPath: /opt/oai-nr-ue/etc/nr-ue.conf
               subPath: nr-ue.conf
@@ -79,7 +95,7 @@ spec:
           ## Flask + PJSUA2 application.
           ## This container shares the network namespace with nr-ue, so
           ## oaitun_* interfaces created by nr-uesoftmodem are visible here.
-        - name: texter-web
+        - name: web
           image: quay.io/jodavis/dkypuros-texter:latest
 
           env:
@@ -118,7 +134,7 @@ spec:
                 - /bin/bash
                 - /app/bin/check-ims.sh
             periodSeconds: 2
-            timeoutSeconds: 3
+            timeoutSeconds: 5
             failureThreshold: 90
 
             ## This serves two purposes:
@@ -147,6 +163,10 @@ spec:
             failureThreshold: 2
 
       volumes:
+        - name: tun-device
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
         ## Written once by the init container and consumed by nr-ue.
         ##
         ## It survives restarts of an individual container for the
