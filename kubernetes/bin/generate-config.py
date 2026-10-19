@@ -30,8 +30,8 @@ def generateImsi():
   return f"{mcc}{mnc}{spokeId}{randomId}"
 
 randomIMSI=generateImsi()
-staticKey="00112233445566778899aabbccddeeff"
-staticOPC="63bfa50ee6523365ff14c1f45f88737d"
+staticKey="fec86ba6eb707ed08905757b1bb44b8f"
+staticOPC="C42449363BBAD02B66D16BC975D77CC1"
 
   ## Allow temporary overrides to dynamic IMSI generation
 if "IMSI" in os.environ.keys():

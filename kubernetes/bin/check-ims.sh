@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -uo pipefail
 
 imsInterface="${imsInterface:-}"
 sipServer="${sipServer:-192.168.27.57}"
@@ -8,62 +8,88 @@ sipPort="${sipPort:-5060}"
 sipIdentity="${sipIdentity:-user1}"
 sipDomain="${sipDomain:-dkypuros}"
 
-  ## IMS health checking is optional.
-  ## An unset or empty imsInterface explicitly means "Do not perform IMS health checking."
+info() {
+  printf '[check-ims] %s\n' "$*"
+}
+
+error() {
+  printf '[check-ims] ERROR: %s\n' "$*" >&2
+}
+
+## IMS health checking is optional.
 if [[ -z "${imsInterface}" ]]; then
+  info "imsInterface is unset; IMS health check disabled"
   exit 0
 fi
 
-  ## Resolve the IPv4 address currently assigned to the configured IMS
-  ## interface. Do not infer the IMS interface from its subnet.
-if ! imsAddressInfo="$(
-  ip -j -4 addr show dev "${imsInterface}" 2>/dev/null
-)"; then
+info "checking IMS connectivity"
+info "interface=${imsInterface}"
+info "SIP server=${sipServer}:${sipPort}"
+info "SIP identity=${sipIdentity}@${sipDomain}"
+
+## Confirm the configured interface exists and retrieve its IPv4 address.
+if ! imsAddressInfo="$(ip -j -4 addr show dev "${imsInterface}" 2>&1)"; then
+  error "unable to inspect interface ${imsInterface}"
+  error "${imsAddressInfo}"
   exit 1
 fi
 
 imsIp="$(
-  echo "${imsAddressInfo}" | 
-  jq -r '
-    .[0].addr_info[]?
-    | select(.family == "inet")
-    | .local' |
-    head -n 1
+  printf '%s\n' "${imsAddressInfo}" |
+    jq -r '
+      first(
+        .[0].addr_info[]?
+        | select(.family == "inet")
+        | .local
+      ) // empty
+    '
 )"
 
-  ## The interface was configured for health checking but does not
-  ## currently have an IPv4 address.
-if [[ -z "${imsIp}" || "${imsIp}" == "null" ]]; then
+if [[ -z "${imsIp}" ]]; then
+  error "interface ${imsInterface} has no IPv4 address"
   exit 1
 fi
 
-  ## Unique identifiers for SIP
-callId="health-${RANDOM}-$$@${sipIdentity}"
-branch="z9hG4bK-health-${RANDOM}"
+info "IMS address=${imsIp}"
 
-  ## Exercise the actual IMS path with a harmless SIP OPTIONS request.
-  ##
-  ## A valid SIP 200 response proves that traffic left through the UE's
-  ## IMS PDU session, traversed the 5G user plane, reached Kamailio, and
-  ## successfully returned.
+requestId="${RANDOM}-$$"
+callId="health-${requestId}@${sipIdentity}"
+branch="z9hG4bK-health-${requestId}"
+
+info "sending SIP OPTIONS to ${sipServer}:${sipPort}"
+
 response="$(
-  {
-    printf \
-      'OPTIONS sip:%s SIP/2.0\r\nVia: SIP/2.0/UDP %s;branch=%s;rport\r\nFrom: <sip:%s@%s>;tag=health\r\nTo: <sip:%s>\r\nCall-ID: %s\r\nCSeq: 1 OPTIONS\r\nMax-Forwards: 70\r\nContent-Length: 0\r\n\r\n' \
-      "${sipDomain}" \
-      "${imsIp}" \
-      "${branch}" \
-      "${sipIdentity}" \
-      "${sipDomain}" \
-      "${sipDomain}" \
-      "${callId}" |
-      nc \
-        -u \
-        -s "${imsIp}" \
-        -w 2 \
-        "${sipServer}" \
-        "${sipPort}"
-  } || true
+  printf \
+    'OPTIONS sip:%s SIP/2.0\r\nVia: SIP/2.0/UDP %s;branch=%s;rport\r\nFrom: <sip:%s@%s>;tag=health\r\nTo: <sip:%s>\r\nCall-ID: %s\r\nCSeq: 1 OPTIONS\r\nMax-Forwards: 70\r\nContent-Length: 0\r\n\r\n' \
+    "${sipDomain}" \
+    "${imsIp}" \
+    "${branch}" \
+    "${sipIdentity}" \
+    "${sipDomain}" \
+    "${sipDomain}" \
+    "${callId}" |
+    nc \
+      -u \
+      -s "${imsIp}" \
+      -w 2 \
+      "${sipServer}" \
+      "${sipPort}" \
+      2>&1
 )"
 
-echo "${response}" | grep -q '^SIP/2.0 200'
+if grep -q '^SIP/2.0 200' <<< "${response}"; then
+  statusLine="$(grep -m1 '^SIP/2.0' <<< "${response}")"
+  info "IMS health check succeeded: ${statusLine}"
+  exit 0
+fi
+
+error "IMS health check failed"
+
+if [[ -z "${response}" ]]; then
+  error "no response received from ${sipServer}:${sipPort}"
+else
+  error "response was:"
+  printf '%s\n' "${response}" >&2
+fi
+
+exit 1
