@@ -59,19 +59,23 @@ branch="z9hG4bK-health-${requestId}"
 info "sending SIP OPTIONS to ${sipServer}:${sipPort}"
 
 response="$(
-  printf \
-    'OPTIONS sip:%s SIP/2.0\r\nVia: SIP/2.0/UDP %s;branch=%s;rport\r\nFrom: <sip:%s@%s>;tag=health\r\nTo: <sip:%s>\r\nCall-ID: %s\r\nCSeq: 1 OPTIONS\r\nMax-Forwards: 70\r\nContent-Length: 0\r\n\r\n' \
-    "${sipDomain}" \
-    "${imsIp}" \
-    "${branch}" \
-    "${sipIdentity}" \
-    "${sipDomain}" \
-    "${sipDomain}" \
-    "${callId}" |
+  {
+    printf \
+      'OPTIONS sip:%s SIP/2.0\r\nVia: SIP/2.0/UDP %s;branch=%s;rport\r\nFrom: <sip:%s@%s>;tag=health\r\nTo: <sip:%s>\r\nCall-ID: %s\r\nCSeq: 1 OPTIONS\r\nMax-Forwards: 70\r\nContent-Length: 0\r\n\r\n' \
+      "${sipDomain}" \
+      "${imsIp}" \
+      "${branch}" \
+      "${sipIdentity}" \
+      "${sipDomain}" \
+      "${sipDomain}" \
+      "${callId}"
+
+    sleep 1
+  } |
     nc \
       -u \
       -s "${imsIp}" \
-      -w 2 \
+      --idle-timeout 2s \
       "${sipServer}" \
       "${sipPort}" \
       2>&1
