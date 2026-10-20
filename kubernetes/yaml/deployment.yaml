@@ -151,7 +151,7 @@ spec:
                 - /bin/bash
                 - /app/bin/check-ims.sh
             periodSeconds: 5
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 4
 
             ## For the initial implementation, readiness and liveness use
@@ -162,7 +162,7 @@ spec:
                 - /bin/bash
                 - /app/bin/check-ims.sh
             periodSeconds: 5
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 2
 
       volumes:
