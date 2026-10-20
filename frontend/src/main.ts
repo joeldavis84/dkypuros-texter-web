@@ -64,4 +64,7 @@ class AppComponent {
   }
 }
 
+const backgroundColors = ['#32a852', '#f0959b', '#9592f7', '#ffffff', '#fa5eff'];
+document.body.style.backgroundColor = backgroundColors[Math.floor(Math.random() * backgroundColors.length)]!;
+
 bootstrapApplication(AppComponent, { providers: [provideHttpClient()] }).catch(console.error);
