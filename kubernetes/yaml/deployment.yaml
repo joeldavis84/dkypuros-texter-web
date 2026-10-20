@@ -140,31 +140,6 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 90
 
-            ## This serves two purposes:
-            ##
-            ##   1. verifies the application's most important dependency
-            ##   2. generates periodic IMS traffic, avoiding the currently
-            ##      observed repeated RRC idle/resume failure in the softmodem
-          livenessProbe:
-            exec:
-              command:
-                - /bin/bash
-                - /app/bin/check-ims.sh
-            periodSeconds: 5
-            timeoutSeconds: 10
-            failureThreshold: 4
-
-            ## For the initial implementation, readiness and liveness use
-            ## the same definition of application health.
-          readinessProbe:
-            exec:
-              command:
-                - /bin/bash
-                - /app/bin/check-ims.sh
-            periodSeconds: 5
-            timeoutSeconds: 10
-            failureThreshold: 2
-
       volumes:
         - name: tun-device
           hostPath:
