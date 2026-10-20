@@ -9,12 +9,12 @@ sipIdentity="${sipIdentity:-user1}"
 sipDomain="${sipDomain:-dkypuros}"
 
 info() {
-  timestamp=$(date +"(%m-%d %H:%M:%S)")"
+  timestamp=$(date +"(%m-%d %H:%M:%S)")
   printf "%s [check-ims] %s\n" "$timestamp" "$*"
 }
 
 error() {
-  timestamp=$(date +"(%m-%d %H:%M:%S)")"
+  timestamp=$(date +"(%m-%d %H:%M:%S)")
   printf '%s [check-ims] ERROR: %s\n' "$timestamp" "$*" >&2
 }
 
