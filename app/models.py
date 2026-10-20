@@ -11,7 +11,7 @@ class Message(db.Model):
     sender: Mapped[str] = mapped_column(String(128))
     recipient: Mapped[str] = mapped_column(String(128))
     body: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(32), default="simulated")
+    status: Mapped[str] = mapped_column(String(32), default="queued")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

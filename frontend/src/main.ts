@@ -15,16 +15,16 @@ interface Message { id: number; sender: string; recipient: string; body: string;
         <h1 class="mt-3 text-4xl font-bold">5G messaging automation</h1>
         <p class="mt-3 text-slate-600">Explore IMS messaging workflows for 5G network automation.</p>
       </header>
-      <p class="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">Outgoing messages are simulated. Incoming SIP text messages appear automatically below when the IMS listener is running.</p>
+      <p class="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">Send text messages through IMS. Incoming messages and send status update automatically below. “Sent” means accepted by SIP, not read by the recipient.</p>
       <p role="alert" class="mb-4 text-red-700">{{ error() }}</p>
       <div class="grid gap-8 md:grid-cols-2">
         <section class="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 class="mb-5 text-xl font-semibold">Create a demo message</h2>
+          <h2 class="mb-5 text-xl font-semibold">Send a message</h2>
           <form (ngSubmit)="submit()" #form="ngForm" class="space-y-5">
-            <label class="block">Sender<input name="sender" [(ngModel)]="sender" required maxlength="128" placeholder="sip:alice@example.test"></label>
+            <label class="block">Sender<input name="sender" [value]="sender()" readonly placeholder="Loading SIP account…"></label>
             <label class="block">Recipient<input name="recipient" [(ngModel)]="recipient" required maxlength="128" placeholder="sip:bob@example.test"></label>
             <label class="block">Message<textarea name="body" [(ngModel)]="body" required maxlength="1600" rows="4" placeholder="Hello from the IMS demo"></textarea></label>
-            <button type="submit" [disabled]="form.invalid || saving()" class="rounded-lg bg-teal-700 px-5 py-3 font-semibold text-white">{{ saving() ? 'Saving…' : 'Save simulated message' }}</button>
+            <button type="submit" [disabled]="form.invalid || saving() || !sender()" class="rounded-lg bg-teal-700 px-5 py-3 font-semibold text-white">{{ saving() ? 'Queuing…' : 'Send message' }}</button>
             <p role="status" class="text-sm text-teal-800">{{ notice() }}</p>
           </form>
         </section>
@@ -38,7 +38,7 @@ interface Message { id: number; sender: string; recipient: string; body: string;
               <p class="mt-2 break-all text-sm text-slate-500">{{ message.sender }} → {{ message.recipient }}</p>
               <p class="mt-2 whitespace-pre-wrap break-words">{{ message.body }}</p>
             </article>
-          } @empty { <p class="py-8 text-slate-500">No messages loaded. Receive a SIP text message or create a demo message.</p> }
+          } @empty { <p class="py-8 text-slate-500">No messages loaded. Send or receive a SIP text message.</p> }
         </section>
       </div>
     </main>`
@@ -51,8 +51,18 @@ class AppComponent {
   saving = signal(false);
   error = signal('');
   notice = signal('');
-  sender = ''; recipient = ''; body = '';
+  sender = signal('');
+  recipient = ''; body = '';
   constructor() {
+    this.http.get<{ account_uri: string; enabled: boolean }>('/api/v1/sip-account').pipe(
+      takeUntilDestroyed()
+    ).subscribe({
+      next: account => {
+        this.sender.set(account.enabled ? account.account_uri : '');
+        if (!account.enabled) this.error.set('Configure a SIP account on this instance before sending.');
+      },
+      error: () => this.error.set('Cannot load the SIP account. Reload the page to try again.')
+    });
     merge(timer(0, 5000), this.refreshRequests).pipe(
       // Keep at most one request in flight, including manual refreshes.
       exhaustMap(() => this.http.get<{ messages: Message[] }>('/api/v1/messages').pipe(
@@ -73,10 +83,11 @@ class AppComponent {
   }
   refresh() { this.refreshRequests.next(); }
   submit() {
+    if (this.saving() || !this.sender()) return;
     this.saving.set(true); this.error.set(''); this.notice.set('');
-    this.http.post<Message>('/api/v1/messages', { sender: this.sender, recipient: this.recipient, body: this.body }).subscribe({
-      next: message => { this.saving.set(false); this.body = ''; this.notice.set('Simulated request #' + message.id + ' saved.'); this.refresh(); },
-      error: (err: HttpErrorResponse) => { this.saving.set(false); this.error.set(err.error?.error?.message ?? 'Unable to save request. Check the API connection.'); }
+    this.http.post<Message>('/api/v1/messages', { sender: this.sender(), recipient: this.recipient, body: this.body }).subscribe({
+      next: message => { this.saving.set(false); this.body = ''; this.notice.set('Message #' + message.id + ' queued. Check its send status in Recent messages.'); this.refresh(); },
+      error: (err: HttpErrorResponse) => { this.saving.set(false); this.error.set(err.error?.error?.message ?? 'Could not confirm submission. Check Recent messages before trying again.'); }
     });
   }
 }

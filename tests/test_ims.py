@@ -21,7 +21,9 @@ def fake_binding():
     pj.AccountConfig = lambda: NS(regConfig=NS(), sipConfig=NS(proxies=[], authCreds=[]))
     pj.BuddyConfig = NS
     pj.Buddy = Mock()
-    pj.SendInstantMessageParam = NS
+    from itertools import count
+    tokens = count(100)
+    pj.SendInstantMessageParam = lambda: NS(this=next(tokens))
     pj.AuthCredInfo = Mock()
     return pj
 
@@ -182,10 +184,11 @@ def test_listener_callback_saved_and_visible_to_web(monkeypatch, tmp_path):
     assert message['created_at']
     assert web.test_client().get('/api/v1/messages/' + str(message['id'])).json == message
     assert transports[0].endpoint is None
-    simulated = web.test_client().post('/api/v1/messages', json={
-        'sender': 'a', 'recipient': 'b', 'body': 'simulated text',
+    outgoing = web.test_client().post('/api/v1/messages', json={
+        'recipient': 'sip:b@test', 'body': 'outgoing text',
     })
-    assert simulated.json['status'] == 'simulated'
+    assert outgoing.status_code == 202
+    assert outgoing.json['status'] == 'queued'
     assert len(web.test_client().get('/api/v1/messages').json['messages']) == 2
 
 

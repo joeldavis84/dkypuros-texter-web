@@ -1,6 +1,7 @@
 import json
 import signal
 import threading
+from collections import deque
 
 import click
 from flask import Blueprint, current_app
@@ -9,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..extensions import db
 from ..ims.config import SipSettings
 from ..ims.network import resolve_network
+from ..ims.outbox import Outbox
 from ..ims.pjsua import PjsuaTransport, load_binding
 from ..services.messaging import record_received_message
 
@@ -72,11 +74,22 @@ def listen(include_body):
         settings = resolve_network(settings, stopping)
         if stopping.is_set():
             return
-        transport = PjsuaTransport(settings, lambda event: handle_event(event, include_body))
+        events = deque()
+        # Drain callbacks outside SWIG before doing database work.
+        transport = PjsuaTransport(settings, events.append)
+        outbox = Outbox(transport, settings.account_uri, lambda event: handle_event(event, include_body))
+        outbox.recover()
         transport.start()
         click.echo(json.dumps({'type': 'listener_started', 'address': settings.bind_address, 'port': settings.port}))
         while not stopping.is_set():
             transport.poll()
+            while events:
+                event = events.popleft()
+                if event['type'] == 'message_status':
+                    outbox.handle_status(event)
+                handle_event(event, include_body)
+            if not stopping.is_set():
+                outbox.tick()
     except RuntimeError as error:
         raise click.ClickException(str(error)) from error
     finally:

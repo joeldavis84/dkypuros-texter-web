@@ -1,6 +1,6 @@
-# PJSUA2 receive integration
+# PJSUA2 send and receive integration
 
-The PJSUA2 listener saves incoming `text/plain` SIP MESSAGE bodies in the existing `Message` table with `status="received"`. Sender, recipient, text, and a UTC receipt timestamp are available through `/api/v1/messages` and the web interface, which polls every five seconds and updates only Recent messages when the returned list changes. Manual Refresh is also available. Simulated web/API submissions retain `status="simulated"`; submitting the form still does not transmit SIP traffic.
+The PJSUA2 listener saves incoming `text/plain` SIP MESSAGE bodies in the existing `Message` table with `status="received"`. Sender, recipient, text, and a UTC receipt timestamp are available through `/api/v1/messages` and the web interface, which polls every five seconds and updates only Recent messages when the returned list changes. Manual Refresh is also available. Submitting the form queues an outgoing `text/plain` SIP MESSAGE for the same listener to transmit. Existing simulated records remain visible as historical records.
 
 ## Runtime model
 
@@ -9,6 +9,25 @@ The image defaults to `python3.11 -m app.runtime`. It loads `.env` settings, cre
 The listener owns PJSUA2 on its main thread, with native worker threads disabled. Gunicorn workers never initialize PJSUA2. Each incoming text message is committed before a success event is logged, and its database session is removed after processing. Both processes inherit the same `DATABASE_URL`, defaulting to `instance/texter.db` inside `/app`. The Kubernetes example does not mount a persistent database volume: records can be lost on container replacement. Use a volume at `/app/instance` or an external database if records need to survive replacement.
 
 No schema change is required; table creation only creates missing tables and does not migrate existing schemas.
+
+## Sending from the web form
+
+`GET /api/v1/sip-account` supplies the configured account for the read-only Sender field. `POST /api/v1/messages` accepts a recipient SIP URI and text body, stores `status="queued"`, and returns HTTP 202 with the message ID and Location. It derives the sender from the server configuration; an optional supplied sender must match. If SIP is not configured, the API returns 503 and the form disables sending.
+
+The existing listener scans the database every half second, waits for registration when a registrar is configured, and atomically claims a queued record as `sending` before calling `PjsuaTransport.send_text()`. It sends from the account's UE address/local port through `sipServer:sipPort`. PJSUA2 constructs the MESSAGE, Via, From/To, unique transaction identifiers, and byte length. Unlike the external netcat example, the From identity is this instance's account (for example `sip:user1@dkypuros`), not `sip:test@dkypuros`, and the source port is the listener's port 5062, not 5099.
+
+The PJSUA2 callback's `userData` correlates each result to its database message ID, including concurrent sends to the same recipient. Python SWIG uses an opaque wrapped pointer for input and an integer for returned `void*`; the adapter retains each parameter object until its final callback. See [PJSUA2 message status](https://pjsip.org/docs/latest/pjsip/docs/html/structpj_1_1OnInstantMessageStatusParam.htm) and the [2.16 Python binding definitions](https://github.com/pjsip/pjproject/blob/2.16/pjsip-apps/src/swig/pjsua2.i).
+
+| Status | Meaning |
+| --- | --- |
+| `queued` | Stored, waiting for a running/registered listener |
+| `sending` | Claimed for a SIP send attempt |
+| `sent` | Final SIP 2xx response; not proof of reading or SMS delivery |
+| `failed` | Local send error or final SIP rejection |
+| `unknown` | No final response within 45 seconds, SIP 408, or worker restart during an attempt |
+| `received` | Incoming text committed to the database |
+
+A late final response may resolve `unknown` to `sent` or `failed`. Claimed messages are never automatically resent after a timeout or crash; this avoids duplicate sends when the remote side may already have accepted them. Queued messages survive worker restarts if the database survives, and wait for registration. One worker per account/database is required. Each form submission makes one POST with the button disabled while it is pending; there is no automatic HTTP retry or idempotency key. Check the list before manually resubmitting after an uncertain HTTP outcome.
 
 ## Existing deployment environment
 
@@ -45,7 +64,7 @@ After rebuilding and deploying the image:
 1. Watch `kubectl -n duranta logs -f deployment/texter-web -c web` for `waiting_for_interface`, then `listener_started`, and registration events. `listener_started` means the transport opened; successful registration should report `active: true` and a successful SIP status.
 2. Send a `text/plain` SIP MESSAGE to the registered account through your IMS service.
 3. Confirm an `incoming_message` event with `status: received`, `persisted: true`, and a `message_id`.
-4. Wait for the next automatic refresh in the web interface (normally within five seconds), or GET `/api/v1/messages`, and confirm the text and `received` status. Create a simulated message and verify both appear in the same list.
+4. Wait for the next automatic refresh in the web interface (normally within five seconds), or GET `/api/v1/messages`, and confirm the text and `received` status. Use the form to send a message to a reachable SIP account. Confirm a `message_status` log event with its `message_id` and a 2xx `code`, a `sent` status in the list, and receipt on the destination. For a loopback test, use this instance’s own account and expect separate outgoing `sent` and incoming `received` rows.
 
 The existing SIP OPTIONS probes check reachability, not account registration or database health. The supervisor detects listener process exits; registration failures are visible in its JSON events.
 
@@ -55,5 +74,5 @@ The existing SIP OPTIONS probes check reachability, not account registration or 
 - Message bodies are stored in the database regardless of whether log bodies are enabled. Logs omit bodies by default.
 - A database error rolls back the session and emits `persistence_failed`; later messages can still be processed. There is no durable retry queue. SIP acceptance is not a guarantee of database persistence.
 - Each callback creates a record; application-level duplicate detection is not implemented.
-- `PjsuaTransport.send_text()` remains a primitive for future outbound integration. The web form does not call it.
-- Automated tests use mocked PJSUA2 callbacks and real isolated databases. Live registration, routing, authentication, and receipt must be validated with the IMS network.
+- The web and worker must share the same database. With separate databases per pod, use the particular instance’s web endpoint; a load-balanced service can otherwise show different message histories. Automatic resends and end-to-end delivery/read receipts are not implemented.
+- Automated tests use mocked PJSUA2 callbacks and real isolated databases. Live outbound routing and native status correlation must be validated with the IMS network; unit tests do not replace that test.

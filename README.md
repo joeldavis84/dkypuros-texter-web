@@ -2,7 +2,7 @@
 
 A Flask application for exploring 5G network automation, with IMS text messaging as the initial workflow. The repository root is the application source root. Flask serves an Angular 21 frontend styled with Tailwind CSS 4, and Flask-SQLAlchemy uses SQLAlchemy 2 to persist message requests.
 
-**Outgoing messaging remains simulated:** web/API submissions are stored with `status: simulated`. The PJSUA2 listener saves incoming `text/plain` SIP messages with `status: received` in the same database. The web interface checks for new messages every five seconds and updates Recent messages automatically; manual Refresh is also available. Outgoing IMS transmission and binary SMS decoding are not implemented.
+The web form sends `text/plain` SIP messages through the configured IMS proxy using PJSUA2. Submissions enter the database as `queued`; the dedicated listener sends them and records the SIP result. Incoming messages are stored as `received`. The web interface polls every five seconds for messages and status changes. Binary SMS decoding is not implemented.
 
 ## Local setup
 
@@ -56,17 +56,18 @@ All API routes use `/api/v1` and return JSON, including HTTP errors (`{"error":{
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/health` | Process liveness and simulation mode (not database/IMS readiness) |
-| POST | `/messages` | Save one simulated request; returns 201 and a `Location` header |
-| GET | `/messages?limit=20&offset=0` | Received and simulated messages, newest first; limit 1–100, offset ≥ 0 |
+| GET | `/health` | Process liveness and SIP mode (not database/IMS readiness) |
+| GET | `/sip-account` | Configured sender identity and whether SIP settings are valid; not registration status |
+| POST | `/messages` | Queue an outgoing text SIP message; returns 202 and a `Location` header |
+| GET | `/messages?limit=20&offset=0` | Incoming and outgoing messages, newest first; limit 1–100, offset ≥ 0 |
 | GET | `/messages/<id>` | Retrieve one message; 404 if absent |
 
-Create a request with curl:
+With a configured SIP account and a running listener, queue a message with curl:
 
 ```sh
 curl --fail-with-body http://127.0.0.1:5000/api/v1/messages \
   -H 'Content-Type: application/json' \
-  -d '{"sender":"sip:alice@example.test","recipient":"sip:bob@example.test","body":"Hello from the 5G automation lab"}'
+  -d '{"recipient":"sip:bob@example.test","body":"Hello from the 5G automation lab"}'
 
 curl --fail-with-body 'http://127.0.0.1:5000/api/v1/messages?limit=10'
 ```
@@ -80,7 +81,6 @@ from urllib.request import Request, urlopen
 request = Request(
     "http://127.0.0.1:5000/api/v1/messages",
     data=json.dumps({
-        "sender": "sip:alice@example.test",
         "recipient": "sip:bob@example.test",
         "body": "Hello from Python",
     }).encode(),
@@ -91,7 +91,9 @@ with urlopen(request, timeout=10) as response:
     print(json.load(response))
 ```
 
-For simulated POST requests, sender and recipient must be nonblank strings of at most 128 characters; body must be nonblank text of at most 1,600 characters. These are demo storage limits, not IMS encoding or segmentation rules. Requests are limited to 16 KiB. Non-JSON content returns 415; malformed JSON or invalid fields return 400. Each POST creates a new record; retries are not idempotent.
+The recipient must be a `sip:` URI of at most 128 characters; body must be nonblank text of at most 1,600 characters. The server uses its configured SIP account as the sender. An optional `sender` field must match that account. Missing/invalid SIP configuration returns 503. Requests are limited to 16 KiB. Non-JSON content returns 415; malformed JSON or invalid fields return 400. Each POST creates a new record; requests are not automatically retried. After an uncertain HTTP result, check Recent messages before submitting again.
+
+Statuses are `queued` (waiting for the listener/registration), `sending`, `sent` (SIP 2xx acceptance, not a read receipt), `failed` (local send failure or SIP rejection), `unknown` (timeout or interrupted attempt), and `received`. Historical `simulated` records remain readable. No database schema migration is required. Unknown attempts are not automatically resent, to avoid duplicates.
 
 ## Structure and extension points
 
@@ -104,7 +106,7 @@ app/
     api.py                Versioned REST API and HTTP error handling
     web.py                Built Angular page and asset serving
     database.py           Database initialization CLI
-  services/messaging.py   Simulated and received message persistence
+  services/messaging.py   Outgoing queue and received message persistence
 frontend/                 Angular application and Tailwind build configuration
 tests/                    Backend API and application tests
 wsgi.py                   WSGI entry point
@@ -114,7 +116,7 @@ requirements-dev.txt      Test dependencies
 
 All HTTP routes, asset serving, and application CLI functionality belong to blueprints; the factory only configures and assembles the app.
 
-For real IMS integration, extend `app/services/messaging.py` with a worker queue connected to the PJSUA2 transport and configured IMS credentials. Add delivery status tracking, timeouts, idempotency, and a background job queue before introducing configurable rate, concurrency, or duration for load runs. Do not run long load-generation loops inside Flask request handlers. Add schema migrations when the model evolves.
+The listener consumes the database outbox in `app/ims/outbox.py` on the PJSUA2 owning thread. Run one listener per account/database. Add explicit retry controls, idempotent submissions, and delivery receipts before introducing configurable rate, concurrency, or duration for load runs. Do not run long load-generation loops inside Flask request handlers. Add schema migrations when the model evolves.
 
 ## Tests
 
@@ -130,9 +132,11 @@ Tests use isolated databases and mocked PJSUA2 bindings to cover API behavior, S
 
 Framework references: [Flask factories](https://flask.palletsprojects.com/en/stable/patterns/appfactories/), [Flask-SQLAlchemy](https://flask-sqlalchemy.palletsprojects.com/en/stable/quickstart/), [Angular compatibility](https://angular.dev/reference/versions), and [Tailwind with Angular](https://tailwindcss.com/docs/installation/framework-guides/angular).
 
-## PJSUA2 receive integration
+## PJSUA2 send and receive integration
 
 The container reads `sipIdentity`, `sipDomain`, `sipServer`, `sipPort`, and `imsInterface` from the deployment. It waits for the IMS interface IPv4 address, binds and advertises that address on UDP/5062, and starts registration through the configured SIP proxy. `sipPort` is the remote server port. Explicit `IMS_*` settings still take precedence.
+
+Outgoing submissions are claimed from the database and sent by the registered PJSUA2 account through the configured proxy. Sender identity comes from `/api/v1/sip-account` and is read-only in the form. PJSUA2 creates SIP transaction headers and calculates the message length.
 
 Incoming text SIP messages are committed to the same `Message` table used by the REST API, with `status: received`; the UI displays that status automatically on its next poll. Registration and receive results are logged as JSON, with message bodies hidden by default. Unsupported binary content is logged without its body and is not saved as text. Database failures produce `persistence_failed` events; they are not retried or reported as successful saves.
 

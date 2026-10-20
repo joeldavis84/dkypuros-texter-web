@@ -21,6 +21,7 @@ class PjsuaTransport:
         self.account = None
         self.buddies = {}
         self.owner = None
+        self.pending_messages = {}
 
     def _check_thread(self):
         if threading.get_ident() != self.owner:
@@ -35,6 +36,7 @@ class PjsuaTransport:
         self.owner = threading.get_ident()
         pj = self.pj
         emit = self.on_event
+        pending = self.pending_messages
 
         class Account(pj.Account):
             def onRegState(self, prm):
@@ -48,7 +50,14 @@ class PjsuaTransport:
 
             def onInstantMessageStatus(self, prm):
                 # A SIP response is not an SMS delivery receipt.
-                emit({'type': 'message_status', 'recipient': prm.toUri, 'code': prm.code})
+                token = getattr(prm, 'userData', None)
+                entry = pending.get(token)
+                event = {'type': 'message_status', 'recipient': prm.toUri, 'code': prm.code}
+                if entry is not None:
+                    event['message_id'] = entry[1]
+                    if prm.code >= 200:
+                        del pending[token]
+                emit(event)
 
         try:
             self.endpoint = pj.Endpoint()
@@ -89,7 +98,13 @@ class PjsuaTransport:
             raise RuntimeError('Transport is not running.')
         self.endpoint.libHandleEvents(timeout_ms)
 
-    def send_text(self, recipient, body):
+    def ready_to_send(self):
+        self._check_thread()
+        return self.account is not None and (
+            not self.settings.registrar_uri or self.account.getInfo().regIsActive
+        )
+
+    def send_text(self, recipient, body, message_id=None):
         self._check_thread()
         if self.account is None:
             raise RuntimeError('Transport is not running.')
@@ -110,7 +125,19 @@ class PjsuaTransport:
         params = self.pj.SendInstantMessageParam()
         params.contentType = 'text/plain'
         params.content = body
-        self.buddies[recipient].sendInstantMessage(params)
+        token = None
+        if message_id is not None:
+            # Python SWIG accepts a wrapped pointer for void* input and returns
+            # it as an integer. Keep the parameter alive until the final callback
+            # so its address cannot be reused by another outstanding message.
+            token = int(params.this)
+            params.userData = params.this
+            self.pending_messages[token] = (params, message_id)
+        try:
+            self.buddies[recipient].sendInstantMessage(params)
+        except Exception:
+            self.pending_messages.pop(token, None)
+            raise
 
     def close(self):
         if self.owner is None:
@@ -130,3 +157,4 @@ class PjsuaTransport:
                     self.endpoint.libDestroy()
                 finally:
                     self.endpoint = None
+                    self.pending_messages.clear()
