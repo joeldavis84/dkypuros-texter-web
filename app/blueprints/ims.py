@@ -2,6 +2,7 @@ import json
 import signal
 import threading
 from collections import deque
+from datetime import datetime, timezone
 
 import click
 from flask import Blueprint, current_app
@@ -20,6 +21,7 @@ ims = Blueprint('ims', __name__, cli_group='ims')
 def handle_event(event, include_body=False):
     """Commit incoming text before logging success; never let DB errors cross SWIG."""
     event = dict(event)
+    event['timestamp'] = datetime.now(timezone.utc).isoformat()
     if event['type'] == 'incoming_message':
         media_type = event.get('content_type', '').split(';', 1)[0].strip().lower()
         if media_type != 'text/plain':

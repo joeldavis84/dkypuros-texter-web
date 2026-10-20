@@ -52,7 +52,15 @@ class PjsuaTransport:
                 # A SIP response is not an SMS delivery receipt.
                 token = getattr(prm, 'userData', None)
                 entry = pending.get(token)
-                event = {'type': 'message_status', 'recipient': prm.toUri, 'code': prm.code}
+                response = getattr(prm, 'rdata', None)
+                event = {
+                    'type': 'message_status', 'recipient': prm.toUri, 'code': prm.code,
+                    'reason': getattr(prm, 'reason', ''),
+                    # PJSUA2 leaves rdata empty for local timeout/transport errors.
+                    # Do not log wholeMsg: it may contain message text or credentials.
+                    'response_received': bool(getattr(response, 'wholeMsg', '')),
+                    'response_source': getattr(response, 'srcAddress', ''),
+                }
                 if entry is not None:
                     event['message_id'] = entry[1]
                     if prm.code >= 200:
@@ -135,6 +143,13 @@ class PjsuaTransport:
             self.pending_messages[token] = (params, message_id)
         try:
             self.buddies[recipient].sendInstantMessage(params)
+            self.on_event({
+                'type': 'message_submitted', 'message_id': message_id,
+                'sender': self.settings.account_uri, 'recipient': recipient,
+                'proxy': self.settings.proxy_uri,
+                'bind_address': self.settings.bind_address,
+                'port': self.settings.port,
+            })
         except Exception:
             self.pending_messages.pop(token, None)
             raise

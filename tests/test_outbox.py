@@ -55,7 +55,8 @@ def test_api_to_pjsua_and_out_of_order_responses(app):
             transport.account.onInstantMessageStatus(NS(userData=param.userData, toUri='sip:bob@test', code=code))
         with app.app_context():
             for event in events:
-                outbox.handle_status(event)
+                if event['type'] == 'message_status':
+                    outbox.handle_status(event)
         assert status(app, first) == 'sent'
         assert status(app, second) == 'failed'
         assert not transport.pending_messages

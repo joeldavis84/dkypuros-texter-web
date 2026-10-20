@@ -76,3 +76,23 @@ The existing SIP OPTIONS probes check reachability, not account registration or 
 - Each callback creates a record; application-level duplicate detection is not implemented.
 - The web and worker must share the same database. With separate databases per pod, use the particular instance’s web endpoint; a load-balanced service can otherwise show different message histories. Automatic resends and end-to-end delivery/read receipts are not implemented.
 - Automated tests use mocked PJSUA2 callbacks and real isolated databases. Live outbound routing and native status correlation must be validated with the IMS network; unit tests do not replace that test.
+
+## Diagnosing MESSAGE timeouts
+
+`message_submitted` logs the configured sender, recipient, proxy and bind address after the native send call accepts the request. It does not confirm packet delivery. Timestamped `message_status` events include `reason`, `response_received`, and `response_source`. `response_received: false` indicates that no received SIP response is attached to the callback (a local timeout/transport failure); `true` means the status came with a response. The raw SIP response and message body are not logged.
+
+A successful REGISTER followed by failed sends and receives can also indicate a data-path problem after registration. The deployment currently has only a startup OPTIONS probe; the periodic probes were removed for diagnosis. Their former comments documented periodic IMS traffic as a workaround for an RRC idle/resume failure. PJSUA2's default UDP keepalive is 15 seconds, which is not the former five-second OPTIONS traffic pattern. This is a hypothesis to test, not proof of the cause of a 408.
+
+For an isolated test on a freshly started instance, run the following in a separate terminal before leaving the UE idle (replace POD with its current name):
+
+```sh
+oc exec POD -c web -- bash -c 'while true; do timeout 4s bash /app/bin/check-ims.sh; sleep 1; done'
+```
+
+This generates traffic without letting probe failures restart the container. Stop with Ctrl-C after testing both web sends and netcat-to-IMS receives. If the issue remains, capture the SIP exchange while sending a short test message:
+
+```sh
+oc exec POD -c web -- tcpdump -ni any -s0 -A 'udp and (port 5060 or port 5062)'
+```
+
+Check whether MESSAGE goes to the configured proxy, whether a response returns, and whether an incoming MESSAGE is forwarded to the current UE address. Check Kamailio's registration/contact records for stale or competing registrations of the same account. Packet captures include message contents; use test text. Confirm the last Contact URI, not only the REGISTER 200 response.

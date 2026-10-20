@@ -38,6 +38,7 @@ def test_lifecycle_callbacks_and_send():
     params = pj.Buddy.return_value.sendInstantMessage.call_args.args[0]
     assert params.content == 'hello'
     assert params.contentType == 'text/plain'
+    assert events.pop()['type'] == 'message_submitted'
     transport.account.onInstantMessage(NS(fromUri='sip:b@test', toUri='sip:a@test', contentType='text/plain', msgBody='reply'))
     assert events[0]['body'] == 'reply'
     transport.account.onInstantMessageStatus(NS(toUri='sip:b@test', code=202))
@@ -226,3 +227,30 @@ def test_persistence_failure_rolls_back_and_next_message_succeeds(monkeypatch, c
     messages = app.test_client().get('/api/v1/messages').json['messages']
     assert len(messages) == 1
     assert messages[0]['body'] == 'sensitive text'
+
+
+@pytest.mark.parametrize('wire_response,source', [('', ''), ('SIP/2.0 408 Request Timeout\r\n\r\n', '192.168.27.57:5060')])
+def test_timeout_diagnostics_distinguish_remote_from_local(wire_response, source):
+    pj = fake_binding()
+    events = []
+    transport = PjsuaTransport(SipSettings('sip:a@test', proxy_uri='sip:192.168.27.57:5060;lr'), events.append, pj)
+    transport.start()
+    try:
+        transport.send_text('sip:b@test', 'private message text', message_id=42)
+        sent = events.pop()
+        assert sent['type'] == 'message_submitted'
+        assert sent['proxy'] == 'sip:192.168.27.57:5060;lr'
+        params = pj.Buddy.return_value.sendInstantMessage.call_args.args[0]
+        transport.account.onInstantMessageStatus(NS(
+            userData=params.userData, toUri='sip:b@test', code=408,
+            reason='Request Timeout', rdata=NS(wholeMsg=wire_response, srcAddress=source),
+        ))
+        event = events.pop()
+        assert event['message_id'] == 42
+        assert event['reason'] == 'Request Timeout'
+        assert event['response_received'] is bool(wire_response)
+        assert event['response_source'] == source
+        assert 'wholeMsg' not in event
+        assert 'private message text' not in repr(event)
+    finally:
+        transport.close()
