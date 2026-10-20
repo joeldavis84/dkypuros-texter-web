@@ -1,6 +1,6 @@
 # PJSUA2 receive integration
 
-The PJSUA2 listener saves incoming `text/plain` SIP MESSAGE bodies in the existing `Message` table with `status="received"`. Sender, recipient, text, and a UTC receipt timestamp are available through `/api/v1/messages` and the web interface's Refresh button. Simulated web/API submissions retain `status="simulated"`; submitting the form still does not transmit SIP traffic.
+The PJSUA2 listener saves incoming `text/plain` SIP MESSAGE bodies in the existing `Message` table with `status="received"`. Sender, recipient, text, and a UTC receipt timestamp are available through `/api/v1/messages` and the web interface, which polls every five seconds and updates only Recent messages when the returned list changes. Manual Refresh is also available. Simulated web/API submissions retain `status="simulated"`; submitting the form still does not transmit SIP traffic.
 
 ## Runtime model
 
@@ -45,7 +45,7 @@ After rebuilding and deploying the image:
 1. Watch `kubectl -n duranta logs -f deployment/texter-web -c web` for `waiting_for_interface`, then `listener_started`, and registration events. `listener_started` means the transport opened; successful registration should report `active: true` and a successful SIP status.
 2. Send a `text/plain` SIP MESSAGE to the registered account through your IMS service.
 3. Confirm an `incoming_message` event with `status: received`, `persisted: true`, and a `message_id`.
-4. Click Refresh in the web interface, or GET `/api/v1/messages`, and confirm the text and `received` status. Create a simulated message and verify both appear in the same list.
+4. Wait for the next automatic refresh in the web interface (normally within five seconds), or GET `/api/v1/messages`, and confirm the text and `received` status. Create a simulated message and verify both appear in the same list.
 
 The existing SIP OPTIONS probes check reachability, not account registration or database health. The supervisor detects listener process exits; registration failures are visible in its JSON events.
 

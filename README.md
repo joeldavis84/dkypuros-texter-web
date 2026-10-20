@@ -2,7 +2,7 @@
 
 A Flask application for exploring 5G network automation, with IMS text messaging as the initial workflow. The repository root is the application source root. Flask serves an Angular 21 frontend styled with Tailwind CSS 4, and Flask-SQLAlchemy uses SQLAlchemy 2 to persist message requests.
 
-**Outgoing messaging remains simulated:** web/API submissions are stored with `status: simulated`. The PJSUA2 listener saves incoming `text/plain` SIP messages with `status: received` in the same database. Click Refresh in the web interface to see them. Outgoing IMS transmission and binary SMS decoding are not implemented.
+**Outgoing messaging remains simulated:** web/API submissions are stored with `status: simulated`. The PJSUA2 listener saves incoming `text/plain` SIP messages with `status: received` in the same database. The web interface checks for new messages every five seconds and updates Recent messages automatically; manual Refresh is also available. Outgoing IMS transmission and binary SMS decoding are not implemented.
 
 ## Local setup
 
@@ -134,7 +134,7 @@ Framework references: [Flask factories](https://flask.palletsprojects.com/en/sta
 
 The container reads `sipIdentity`, `sipDomain`, `sipServer`, `sipPort`, and `imsInterface` from the deployment. It waits for the IMS interface IPv4 address, binds and advertises that address on UDP/5062, and starts registration through the configured SIP proxy. `sipPort` is the remote server port. Explicit `IMS_*` settings still take precedence.
 
-Incoming text SIP messages are committed to the same `Message` table used by the REST API, with `status: received`; the UI displays that status after Refresh. Registration and receive results are logged as JSON, with message bodies hidden by default. Unsupported binary content is logged without its body and is not saved as text. Database failures produce `persistence_failed` events; they are not retried or reported as successful saves.
+Incoming text SIP messages are committed to the same `Message` table used by the REST API, with `status: received`; the UI displays that status automatically on its next poll. Registration and receive results are logged as JSON, with message bodies hidden by default. Unsupported binary content is logged without its body and is not saved as text. Database failures produce `persistence_failed` events; they are not retried or reported as successful saves.
 
 For manual use, `flask --app app ims check` validates settings and binding imports; `flask --app app ims listen` starts one listener and creates missing tables. Starting Flask or Gunicorn directly does not start a listener. Do not run a second listener when the container's default startup command is already running one.
 
