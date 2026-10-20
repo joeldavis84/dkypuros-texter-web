@@ -18,7 +18,7 @@ def fake_binding():
     pj.Endpoint = Mock(return_value=endpoint)
     pj.EpConfig = lambda: NS(uaConfig=NS(), logConfig=NS())
     pj.TransportConfig = NS
-    pj.AccountConfig = lambda: NS(regConfig=NS(), sipConfig=NS(proxies=[], authCreds=[]))
+    pj.AccountConfig = lambda: NS(regConfig=NS(), sipConfig=NS(proxies=[], authCreds=[]), natConfig=NS())
     pj.BuddyConfig = NS
     pj.Buddy = Mock()
     from itertools import count

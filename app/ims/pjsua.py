@@ -86,6 +86,8 @@ class PjsuaTransport:
             self.endpoint.libStart()
             self.endpoint.audDevManager().setNullDev()
             config = pj.AccountConfig()
+            config.natConfig.contactRewriteUse = 0
+            config.natConfig.viaRewriteUse = 0
             config.idUri = self.settings.account_uri
             config.regConfig.registrarUri = self.settings.registrar_uri
             config.sipConfig.transportId = transport_id
