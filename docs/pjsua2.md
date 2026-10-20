@@ -1,57 +1,59 @@
-# Preliminary PJSUA2 integration
+# PJSUA2 receive integration
 
-The Flask project now includes an optional PJSUA2 transport and blueprint CLI. This is SIP groundwork, **not working SMS over IMS**. The web form and REST `/api/v1/messages` still only save simulated records. There is no worker queue or REST-to-SIP handoff yet.
+The PJSUA2 listener saves incoming `text/plain` SIP MESSAGE bodies in the existing `Message` table with `status="received"`. Sender, recipient, text, and a UTC receipt timestamp are available through `/api/v1/messages` and the web interface's Refresh button. Simulated web/API submissions retain `status="simulated"`; submitting the form still does not transmit SIP traffic.
 
 ## Runtime model
 
-Run exactly one `flask --app app ims listen` process for an account. It owns the native Endpoint, Account, and Buddy objects, registers if a registrar is configured, and polls events on its main thread. Native worker threads are disabled. Flask/Gunicorn workers never initialize PJSUA2, avoiding duplicate registrations and native state inherited across forks. Ctrl-C and SIGTERM stop the listener and release resources.
+The image defaults to `python3.11 -m app.runtime`. It loads `.env` settings, creates missing database tables, and starts Gunicorn on port 8080. When a SIP account or IMS interface is configured, it also starts exactly one `flask --app app ims listen` process. A process exit stops its sibling and fails the container; SIGTERM/SIGINT shuts down both, with a ten-second grace period before forced termination. The configuration-generator init container overrides the image command and runs independently.
 
-`app/ims/transport.py` defines the transport boundary. `PjsuaTransport.send_text()` provides a basic `text/plain` SIP MESSAGE primitive for a future worker consumer. Use it only on the worker's owning thread after startup; it waits for no result and completion is asynchronous through message-status events. It is deliberately not exposed as a REST send endpoint. SIP response codes must not be presented as end-to-end SMS delivery receipts.
+The listener owns PJSUA2 on its main thread, with native worker threads disabled. Gunicorn workers never initialize PJSUA2. Each incoming text message is committed before a success event is logged, and its database session is removed after processing. Both processes inherit the same `DATABASE_URL`, defaulting to `instance/texter.db` inside `/app`. The Kubernetes example does not mount a persistent database volume: records can be lost on container replacement. Use a volume at `/app/instance` or an external database if records need to survive replacement.
 
-The listener emits JSON registration, incoming-message, and message-status events on stdout. Message bodies are omitted unless `--include-body` is supplied. Events are not persisted, and stdout is not a durable queue. Incoming binary SMS payloads are not decoded or guaranteed to survive the SWIG string interface. Treat this listener as a text SIP integration probe only.
+No schema change is required; table creation only creates missing tables and does not migrate existing schemas.
 
-## Native dependency
+## Existing deployment environment
 
-PJSUA2 is not a normal pure-Python dependency. Build a selected PJPROJECT release and its official Python SWIG bindings for the same Python interpreter/ABI used by this application. Native build tools, SWIG, Python development headers, and PJPROJECT dependencies are required. Follow the upstream build instructions, including `-fPIC` on Linux and installation into the active virtual environment. The container build in `kubernetes/Containerfile` builds the native bindings for Python 3.11; local installations must build them separately. The repository does not pin an unverified third-party PyPI wrapper.
+| Variable | Listener use |
+| --- | --- |
+| `sipIdentity=user1` | Account user |
+| `sipDomain=dkypuros` | Account domain and registrar (`sip:dkypuros`) |
+| `sipServer=192.168.27.57` | Outbound proxy host |
+| `sipPort=5060` | Remote proxy port (`sip:192.168.27.57:5060;lr`) |
+| `imsInterface=oaitun_ue1p2` | Interface whose IPv4 address is used for binding and advertisement |
 
-Verify within the active virtual environment:
+The derived account is `sip:user1@dkypuros`. The local listening port defaults to UDP/5062. The listener waits up to 180 seconds for the interface address before initializing PJSUA2 and registering. This waits for an address, not proof of IMS reachability; the UE must establish the PDU session and routes. If the address changes after startup, restart the listener/container to bind the new address.
+
+Explicit `IMS_ACCOUNT_URI`, `IMS_REGISTRAR_URI`, `IMS_PROXY_URI`, `IMS_BIND_ADDRESS`, `IMS_PUBLIC_ADDRESS`, `IMS_PORT`, and `IMS_TRANSPORT` override the derived settings. An explicitly empty registrar disables registration for direct SIP tests. Without an interface, the bind address defaults to `0.0.0.0`. `IMS_USERNAME`, `IMS_PASSWORD`, and `IMS_REALM` configure ordinary SIP Digest authentication. IMS AKA and IPsec/security agreement are not implemented.
+
+The interface address is supplied to both PJSUA2 `TransportConfig.boundAddress` and `publicAddress`: binding alone does not set the advertised address. See the [PJSUA2 transport configuration reference](https://docs.pjsip.org/en/2.16/api/generated/pjsip/group/group__PJSUA2__SIP__Types.html). Verify actual Contact/Via headers and the return route in your IMS environment.
+
+## Manual commands and validation
+
+The Containerfile builds the native PJSUA2 bindings for Python 3.11. They are not installed by `requirements.txt` in a local development environment.
 
 ```sh
-python -c 'import pjsua2'
-flask --app app ims check
+python3.11 -m flask --app app ims check
+# Use only when a listener is not already running in this network namespace:
+python3.11 -m flask --app app ims listen
+# Optional: also include incoming text in stdout logs:
+python3.11 -m flask --app app ims listen --include-body
 ```
 
-`ims check` validates settings and imports the binding without opening sockets; it does not verify registration or network reachability. Native bindings and live network interoperability have not been tested here.
+`ims check` validates configuration and imports PJSUA2 without opening sockets. Direct Flask/Gunicorn startup does not launch the listener. `ims listen` initializes missing tables and handles termination while waiting for the interface or processing SIP events.
 
-## Configuration and running
+After rebuilding and deploying the image:
 
-Copy the `IMS_*` variables from `.env.example` into `.env` and replace the example identity. `IMS_ACCOUNT_URI` is required. Optional registrar and proxy values are `sip:` URIs. For a proxy route, use the parameters required by your deployment, commonly `;lr`. `IMS_USERNAME`, `IMS_PASSWORD`, and `IMS_REALM` support ordinary SIP Digest only, not an IMS AKA credential flow. Credentials are omitted from settings repr and built-in native SIP logging is disabled.
+1. Watch `kubectl -n duranta logs -f deployment/texter-web -c web` for `waiting_for_interface`, then `listener_started`, and registration events. `listener_started` means the transport opened; successful registration should report `active: true` and a successful SIP status.
+2. Send a `text/plain` SIP MESSAGE to the registered account through your IMS service.
+3. Confirm an `incoming_message` event with `status: received`, `persisted: true`, and a `message_id`.
+4. Click Refresh in the web interface, or GET `/api/v1/messages`, and confirm the text and `received` status. Create a simulated message and verify both appear in the same list.
 
-Transport defaults to **UDP on `0.0.0.0:5062`**, listening on all IPv4 interfaces in the shared pod network namespace, including the UE data-plane interface. TCP remains configurable; TLS is not implemented. `IMS_BIND_ADDRESS` can instead select a specific local UE interface address once that address exists. `IMS_PORT` is the local listening port; keep 5062 for the expected IMS return path. Existing `.env` files or deployment environment variables override these defaults and must be updated if they still specify TCP/5060 or loopback.
+The existing SIP OPTIONS probes check reachability, not account registration or database health. The supervisor detects listener process exits; registration failures are visible in its JSON events.
 
-```sh
-flask --app app ims listen
-# Optional: include sensitive message text in stdout
-flask --app app ims listen --include-body
-```
+## Limits of this first integration
 
-The explicit listen command opens sockets and may send REGISTER traffic. Normal Flask startup does neither.
-
-## Connecting through the OAI UE
-
-The deployment topology is one pod containing this application and the UE softmodem sidecar, using `docker.io/oaisoftwarealliance/oai-nr-ue:2026.w39`. Both containers share the same network namespace, interfaces, routes, and port space. The application receives IMS traffic directly on UDP/5062 through the UE's PDU-session interface. There is no separate sidecar hostname, TCP control connection, or sidecar SMS API in this design. Only one process in the pod should bind this SIP port.
-
-PJSUA2 sends SIP toward the IMS network/P-CSCF using the shared namespace's routing table. The softmodem/network setup must establish the PDU session and routes for IMS traffic; the application does not create those interfaces or routes. Binding the wildcard address allows listening before the UE interface appears, but does not establish connectivity or registration readiness. Start registration after the UE data path is ready.
-
-The wildcard listening address is not an advertised SIP contact address. Verify that SIP Contact/Via and the IMS return route use the reachable UE PDU-session IP and UDP/5062, especially when the pod also has a cluster interface. Automatic contact selection and live IMS routing have not yet been validated; explicit advertised-address configuration remains future integration work if needed.
-
-Remaining IMS-specific work includes:
-
-- Confirm UE image capabilities, IMS APN/DNN/PDU session and P-CSCF reachability.
-- Establish subscriber identities, IMS AKA/authentication, required headers and any IPsec/security agreement.
-- Implement and validate 3GPP SMS RP/TPDU encoding and decoding carried as `application/vnd.3gpp.sms`; `text/plain` is not a substitute.
-- Add a durable outbox/worker queue and inbound persistence, correlation IDs, timeouts, idempotency, retries and delivery-report processing.
-- Introduce schema migrations before changing the existing message schema.
-- Add real-network interoperability tests before exposing load controls.
-
-References: [PJSUA2 Python builds](https://docs.pjsip.org/en/2.15.1/pjsua2/building.html), [threading and object lifetime](https://docs.pjsip.org/en/2.16/pjsua2/general_concept.html), [accounts](https://docs.pjsip.org/en/latest/pjsua2/using/account.html), [instant messaging](https://docs.pjsip.org/en/latest/pjsua2/using/presence.html).
+- Only `text/plain` is stored. Content-type parameters such as `charset=utf-8` are accepted. `application/vnd.3gpp.sms` produces an `unsupported_content_type` event and is not persisted or logged as text. RP/TPDU decoding remains future work.
+- Message bodies are stored in the database regardless of whether log bodies are enabled. Logs omit bodies by default.
+- A database error rolls back the session and emits `persistence_failed`; later messages can still be processed. There is no durable retry queue. SIP acceptance is not a guarantee of database persistence.
+- Each callback creates a record; application-level duplicate detection is not implemented.
+- `PjsuaTransport.send_text()` remains a primitive for future outbound integration. The web form does not call it.
+- Automated tests use mocked PJSUA2 callbacks and real isolated databases. Live registration, routing, authentication, and receipt must be validated with the IMS network.

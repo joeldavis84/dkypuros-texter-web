@@ -8,3 +8,11 @@ def record_simulated_message(sender, recipient, body):
     db.session.add(message)
     db.session.commit()
     return message
+
+
+def record_received_message(sender, recipient, body):
+    """Persist a decoded text SIP MESSAGE in the web application's message store."""
+    message = Message(sender=sender, recipient=recipient, body=body, status="received")
+    db.session.add(message)
+    db.session.commit()
+    return message

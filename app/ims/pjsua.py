@@ -60,7 +60,9 @@ class PjsuaTransport:
             config.logConfig.consoleLevel = 0
             self.endpoint.libInit(config)
             transport = pj.TransportConfig()
-            transport.boundAddress = self.settings.bind_address
+            transport.boundAddress = self.settings.bind_address or '0.0.0.0'
+            if self.settings.public_address:
+                transport.publicAddress = self.settings.public_address
             transport.port = self.settings.port
             kind = pj.PJSIP_TRANSPORT_TCP if self.settings.transport == 'tcp' else pj.PJSIP_TRANSPORT_UDP
             transport_id = self.endpoint.transportCreate(kind, transport)

@@ -2,7 +2,7 @@
 
 A Flask application for exploring 5G network automation, with IMS text messaging as the initial workflow. The repository root is the application source root. Flask serves an Angular 21 frontend styled with Tailwind CSS 4, and Flask-SQLAlchemy uses SQLAlchemy 2 to persist message requests.
 
-**This scaffold only simulates messaging:** requests are stored with `status: simulated`. The web and REST workflows do not transmit IMS messages or generate network load yet.
+**Outgoing messaging remains simulated:** web/API submissions are stored with `status: simulated`. The PJSUA2 listener saves incoming `text/plain` SIP messages with `status: received` in the same database. Click Refresh in the web interface to see them. Outgoing IMS transmission and binary SMS decoding are not implemented.
 
 ## Local setup
 
@@ -46,11 +46,9 @@ podman run --rm -v texter-data:/app/instance dkypuros-texter:latest python3.11 -
 podman run --rm -p 8080:8080 -v texter-data:/app/instance dkypuros-texter:latest
 ```
 
-The image builds the Angular frontend and PJSUA2 bindings, installs Python 3.11 dependencies, and runs Gunicorn with the `wsgi:app` entry point on port 8080. Open http://127.0.0.1:8080. The named volume preserves the default SQLite database across container runs. The IMS listener still requires a separate explicit command.
+The image builds the Angular frontend and PJSUA2 bindings, installs Python 3.11 dependencies, and runs Gunicorn with the `wsgi:app` entry point on port 8080. Open http://127.0.0.1:8080. The named volume preserves the default SQLite database across container runs. The default startup command initializes missing database tables and supervises Gunicorn plus one IMS listener when a SIP account or IMS interface is configured. Both use the same database. Without SIP configuration, it runs only Gunicorn. The existing deployment environment enables the listener automatically; no additional variables are required.
 
-The image supplies `/app/bin/render-nr-ue-config.py` as a self-contained init-container command. On every invocation it constructs the full UE configuration template, substitutes `imsi`, `key`, and `opc` from the container environment, and overwrites `outputPath` (`/generated/nr-ue.conf`). Both PDU sessions from the reference configuration are preserved. No input template file or ConfigMap is needed at runtime. The shared `generated-ue-config` volume exposes the rendered file to the OAI container at `/opt/oai-nr-ue/etc/nr-ue.conf`.
-
-`kubernetes/yaml/deployment.yaml` overrides `command` to run the renderer before the UE starts. The renderer requires the six subscriber/PLMN environment variables declared there and `outputPath`; the reference configuration currently uses only `imsi`, `key`, and `opc`. Each init-container invocation reads the current environment, including when a previous output file exists. To change the configuration structure, edit the template inside the script and rebuild the image.
+The init container continues to override the image command with `/app/bin/generate-config.py`, which writes the UE configuration to `/generated/nr-ue.conf` on the shared volume. It does not start the web server or SIP listener.
 
 ## REST API
 
@@ -60,8 +58,8 @@ All API routes use `/api/v1` and return JSON, including HTTP errors (`{"error":{
 | --- | --- | --- |
 | GET | `/health` | Process liveness and simulation mode (not database/IMS readiness) |
 | POST | `/messages` | Save one simulated request; returns 201 and a `Location` header |
-| GET | `/messages?limit=20&offset=0` | Newest requests first; limit 1–100, offset ≥ 0 |
-| GET | `/messages/<id>` | Retrieve one request; 404 if absent |
+| GET | `/messages?limit=20&offset=0` | Received and simulated messages, newest first; limit 1–100, offset ≥ 0 |
+| GET | `/messages/<id>` | Retrieve one message; 404 if absent |
 
 Create a request with curl:
 
@@ -93,7 +91,7 @@ with urlopen(request, timeout=10) as response:
     print(json.load(response))
 ```
 
-Sender and recipient must be nonblank strings of at most 128 characters; body must be nonblank text of at most 1,600 characters. These are demo storage limits, not IMS encoding or segmentation rules. Requests are limited to 16 KiB. Non-JSON content returns 415; malformed JSON or invalid fields return 400. Each POST creates a new record; retries are not idempotent.
+For simulated POST requests, sender and recipient must be nonblank strings of at most 128 characters; body must be nonblank text of at most 1,600 characters. These are demo storage limits, not IMS encoding or segmentation rules. Requests are limited to 16 KiB. Non-JSON content returns 415; malformed JSON or invalid fields return 400. Each POST creates a new record; retries are not idempotent.
 
 ## Structure and extension points
 
@@ -106,7 +104,7 @@ app/
     api.py                Versioned REST API and HTTP error handling
     web.py                Built Angular page and asset serving
     database.py           Database initialization CLI
-  services/messaging.py   Simulation service / future IMS adapter boundary
+  services/messaging.py   Simulated and received message persistence
 frontend/                 Angular application and Tailwind build configuration
 tests/                    Backend API and application tests
 wsgi.py                   WSGI entry point
@@ -128,12 +126,16 @@ cd frontend
 npm run build
 ```
 
-Tests use an isolated in-memory database and cover request persistence, validation, pagination, errors, blueprint registration, database CLI, and frontend serving.
+Tests use isolated databases and mocked PJSUA2 bindings to cover API behavior, SIP callbacks, received-message persistence across listener/web app instances, environment mapping, interface readiness, error recovery, and process supervision. Live IMS interoperability still needs verification against your deployment.
 
 Framework references: [Flask factories](https://flask.palletsprojects.com/en/stable/patterns/appfactories/), [Flask-SQLAlchemy](https://flask-sqlalchemy.palletsprojects.com/en/stable/quickstart/), [Angular compatibility](https://angular.dev/reference/versions), and [Tailwind with Angular](https://tailwindcss.com/docs/installation/framework-guides/angular).
 
-## Preliminary PJSUA2 support
+## PJSUA2 receive integration
 
-An optional PJSUA2 adapter and `flask --app app ims check` / `ims listen` commands provide configuration validation, a dedicated SIP event loop, registration, and receive/status callbacks. A transport interface and text SIP send primitive are available for future worker integration. The REST API remains simulation-only. See [PJSUA2 setup, architecture, and remaining IMS work](docs/pjsua2.md); native bindings are installed separately from `requirements.txt`.
+The container reads `sipIdentity`, `sipDomain`, `sipServer`, `sipPort`, and `imsInterface` from the deployment. It waits for the IMS interface IPv4 address, binds and advertises that address on UDP/5062, and starts registration through the configured SIP proxy. `sipPort` is the remote server port. Explicit `IMS_*` settings still take precedence.
 
-The IMS listener defaults to **UDP/5062 on all IPv4 interfaces (`0.0.0.0`)** in the network namespace shared with the UE softmodem sidecar. Run it explicitly with `flask --app app ims listen`; starting Flask alone does not start the listener. Existing environment overrides take precedence.
+Incoming text SIP messages are committed to the same `Message` table used by the REST API, with `status: received`; the UI displays that status after Refresh. Registration and receive results are logged as JSON, with message bodies hidden by default. Unsupported binary content is logged without its body and is not saved as text. Database failures produce `persistence_failed` events; they are not retried or reported as successful saves.
+
+For manual use, `flask --app app ims check` validates settings and binding imports; `flask --app app ims listen` starts one listener and creates missing tables. Starting Flask or Gunicorn directly does not start a listener. Do not run a second listener when the container's default startup command is already running one.
+
+See [PJSUA2 setup and validation](docs/pjsua2.md) for the live IMS smoke test and current limitations.

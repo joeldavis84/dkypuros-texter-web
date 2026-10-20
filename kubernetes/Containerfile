@@ -125,5 +125,6 @@ COPY --from=frontend /build/frontend/dist/browser /app/frontend/dist/browser
 RUN chmod +x /app/bin/check-ims.sh /app/bin/generate-config.py
 
 EXPOSE 8080
+EXPOSE 5062/udp
 
-CMD ["python3.11", "-m", "gunicorn", "--bind", "0.0.0.0:8080", "wsgi:app"]
+CMD ["python3.11", "-m", "app.runtime"]

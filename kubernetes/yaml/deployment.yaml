@@ -123,6 +123,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            - name: sip
+              containerPort: 5062
+              protocol: UDP
 
             ## Give the softmodem time to register and establish its PDU
             ## sessions before normal liveness checks begin.

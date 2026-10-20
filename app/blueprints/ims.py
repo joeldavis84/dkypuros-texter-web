@@ -1,13 +1,41 @@
 import json
 import signal
+import threading
 
 import click
 from flask import Blueprint, current_app
+from sqlalchemy.exc import SQLAlchemyError
 
+from ..extensions import db
 from ..ims.config import SipSettings
+from ..ims.network import resolve_network
 from ..ims.pjsua import PjsuaTransport, load_binding
+from ..services.messaging import record_received_message
 
 ims = Blueprint('ims', __name__, cli_group='ims')
+
+
+def handle_event(event, include_body=False):
+    """Commit incoming text before logging success; never let DB errors cross SWIG."""
+    event = dict(event)
+    if event['type'] == 'incoming_message':
+        media_type = event.get('content_type', '').split(';', 1)[0].strip().lower()
+        if media_type != 'text/plain':
+            event.update(status='unsupported_content_type', persisted=False)
+            event.pop('body', None)
+        else:
+            try:
+                message = record_received_message(event['sender'], event['recipient'], event['body'])
+                event.update(status='received', persisted=True, message_id=message.id)
+            except SQLAlchemyError:
+                db.session.rollback()
+                # SQLAlchemy exception strings may contain message text and credentials.
+                event.update(status='persistence_failed', persisted=False)
+            finally:
+                db.session.remove()
+    if not include_body:
+        event.pop('body', None)
+    click.echo(json.dumps(event))
 
 
 @ims.cli.command('check')
@@ -30,28 +58,31 @@ def listen(include_body):
     except ValueError as error:
         raise click.ClickException(str(error)) from error
 
-    def emit(event):
-        if not include_body:
-            event = {key: value for key, value in event.items() if key != 'body'}
-        click.echo(json.dumps(event))
-
-    stopping = False
+    stopping = threading.Event()
 
     def stop(signum, frame):
-        nonlocal stopping
-        stopping = True
+        stopping.set()
 
     previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGINT, signal.SIGTERM)}
-    transport = PjsuaTransport(settings, emit)
+    transport = None
     try:
+        db.create_all()
+        if settings.interface:
+            click.echo(json.dumps({'type': 'waiting_for_interface', 'interface': settings.interface}))
+        settings = resolve_network(settings, stopping)
+        if stopping.is_set():
+            return
+        transport = PjsuaTransport(settings, lambda event: handle_event(event, include_body))
         transport.start()
-        while not stopping:
+        click.echo(json.dumps({'type': 'listener_started', 'address': settings.bind_address, 'port': settings.port}))
+        while not stopping.is_set():
             transport.poll()
     except RuntimeError as error:
         raise click.ClickException(str(error)) from error
     finally:
         try:
-            transport.close()
+            if transport is not None:
+                transport.close()
         finally:
             for sig, handler in previous.items():
                 signal.signal(sig, handler)

@@ -13,7 +13,7 @@ interface Message { id: number; sender: string; recipient: string; body: string;
         <h1 class="mt-3 text-4xl font-bold">5G messaging automation</h1>
         <p class="mt-3 text-slate-600">Explore IMS messaging workflows for 5G network automation.</p>
       </header>
-      <p class="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">Simulation mode — requests are saved locally. No IMS messages are transmitted.</p>
+      <p class="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">Outgoing messages are simulated. Incoming SIP text messages appear below when the IMS listener is running. Refresh to see new messages.</p>
       <p role="alert" class="mb-4 text-red-700">{{ error() }}</p>
       <div class="grid gap-8 md:grid-cols-2">
         <section class="rounded-2xl border border-slate-200 bg-white p-6">
@@ -27,15 +27,15 @@ interface Message { id: number; sender: string; recipient: string; body: string;
           </form>
         </section>
         <section class="rounded-2xl border border-slate-200 bg-white p-6">
-          <div class="mb-5 flex items-center justify-between"><h2 class="text-xl font-semibold">Recent requests</h2><button type="button" (click)="refresh()" class="text-teal-700">Refresh</button></div>
-          <p class="mb-4 text-sm text-slate-500">Latest 20 requests · API v1</p>
+          <div class="mb-5 flex items-center justify-between"><h2 class="text-xl font-semibold">Recent messages</h2><button type="button" (click)="refresh()" class="text-teal-700">Refresh</button></div>
+          <p class="mb-4 text-sm text-slate-500">Latest 20 messages</p>
           @for (message of messages(); track message.id) {
             <article class="border-t border-slate-100 py-4">
-              <div class="flex justify-between gap-3"><span class="font-medium">Request #{{ message.id }}</span><span class="rounded bg-teal-50 px-2 text-sm text-teal-800">{{ message.status }}</span></div>
+              <div class="flex justify-between gap-3"><span class="font-medium">Message #{{ message.id }}</span><span class="rounded bg-teal-50 px-2 text-sm text-teal-800">{{ message.status }}</span></div>
               <p class="mt-2 break-all text-sm text-slate-500">{{ message.sender }} → {{ message.recipient }}</p>
               <p class="mt-2 whitespace-pre-wrap break-words">{{ message.body }}</p>
             </article>
-          } @empty { <p class="py-8 text-slate-500">No requests loaded. Create your first demo message.</p> }
+          } @empty { <p class="py-8 text-slate-500">No messages loaded. Receive a SIP text message or create a demo message.</p> }
         </section>
       </div>
     </main>`
@@ -52,7 +52,7 @@ class AppComponent {
     this.error.set('');
     this.http.get<{ messages: Message[] }>('/api/v1/messages').subscribe({
       next: result => this.messages.set(result.messages),
-      error: () => this.error.set('Cannot load requests. Check Flask and initialize the database.')
+      error: () => this.error.set('Cannot load messages. Check Flask and initialize the database.')
     });
   }
   submit() {
