@@ -3,12 +3,13 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { HttpClient, HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
+import { DatePipe } from '@angular/common';
 import { EMPTY, Subject, catchError, exhaustMap, merge, timeout, timer } from 'rxjs';
 
 interface Message { id: number; sender: string; recipient: string; body: string; status: string; created_at: string; }
 
 @Component({
-  selector: 'app-root', standalone: true, imports: [FormsModule],
+  selector: 'app-root', standalone: true, imports: [FormsModule, DatePipe],
   template: `
     <main class="mx-auto max-w-5xl px-6 py-12">
       <header class="mb-10"><p class="text-sm font-semibold uppercase tracking-widest text-teal-700">5G / Network automation</p>
@@ -21,8 +22,12 @@ interface Message { id: number; sender: string; recipient: string; body: string;
         <section class="rounded-2xl border border-slate-200 bg-white p-6">
           <h2 class="mb-5 text-xl font-semibold">Send a message</h2>
           <form (ngSubmit)="submit()" #form="ngForm" class="space-y-5">
-            <label class="block">Sender<input name="sender" [value]="sender()" readonly placeholder="Loading SIP account…"></label>
-            <label class="block">Recipient<input name="recipient" [(ngModel)]="recipient" required maxlength="128" placeholder="sip:bob@example.test"></label>
+            <div>
+              <p>Sender</p>
+              <p class="mt-1 break-all font-medium">{{ sender() ? displayAddress(sender()) : 'Loading SIP account…' }}</p>
+              <input type="hidden" name="sender" [value]="sender()">
+            </div>
+            <label class="block">Recipient<input name="recipient" [(ngModel)]="recipient" required maxlength="128" placeholder="bob@example.test"></label>
             <label class="block">Message<textarea name="body" [(ngModel)]="body" required maxlength="1600" rows="4" placeholder="Hello from the IMS demo"></textarea></label>
             <button type="submit" [disabled]="form.invalid || saving() || !sender()" class="rounded-lg bg-teal-700 px-5 py-3 font-semibold text-white">{{ saving() ? 'Queuing…' : 'Send message' }}</button>
             <p role="status" class="text-sm text-teal-800">{{ notice() }}</p>
@@ -35,7 +40,8 @@ interface Message { id: number; sender: string; recipient: string; body: string;
           @for (message of messages(); track message.id) {
             <article class="border-t border-slate-100 py-4">
               <div class="flex justify-between gap-3"><span class="font-medium">Message #{{ message.id }}</span><span class="rounded bg-teal-50 px-2 text-sm text-teal-800">{{ message.status }}</span></div>
-              <p class="mt-2 break-all text-sm text-slate-500">{{ message.sender }} → {{ message.recipient }}</p>
+              <time class="mt-1 block text-xs text-slate-500" [attr.datetime]="message.created_at">{{ message.created_at | date:'MMM d, y, h:mm:ss a z' }}</time>
+              <p class="mt-2 break-all text-sm text-slate-500">{{ displayAddress(message.sender) }} → {{ displayAddress(message.recipient) }}</p>
               <p class="mt-2 whitespace-pre-wrap break-words">{{ message.body }}</p>
             </article>
           } @empty { <p class="py-8 text-slate-500">No messages loaded. Send or receive a SIP text message.</p> }
@@ -82,10 +88,14 @@ class AppComponent {
     });
   }
   refresh() { this.refreshRequests.next(); }
+  displayAddress(address: string) {
+    return address.trim().replace(/^<([^>]+)>$/, '$1').replace(/(^|<)sip:/gi, '$1');
+  }
   submit() {
     if (this.saving() || !this.sender()) return;
     this.saving.set(true); this.error.set(''); this.notice.set('');
-    this.http.post<Message>('/api/v1/messages', { sender: this.sender(), recipient: this.recipient, body: this.body }).subscribe({
+    const recipient = 'sip:' + this.recipient.trim().replace(/^sip:/i, '');
+    this.http.post<Message>('/api/v1/messages', { sender: this.sender(), recipient, body: this.body }).subscribe({
       next: message => { this.saving.set(false); this.body = ''; this.notice.set('Message #' + message.id + ' queued. Check its send status in Recent messages.'); this.refresh(); },
       error: (err: HttpErrorResponse) => { this.saving.set(false); this.error.set(err.error?.error?.message ?? 'Could not confirm submission. Check Recent messages before trying again.'); }
     });
