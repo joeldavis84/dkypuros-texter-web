@@ -9,14 +9,16 @@ sipIdentity="${sipIdentity:-user1}"
 sipDomain="${sipDomain:-dkypuros}"
 
 info() {
-  printf '$(date +"(%m-%d %H:%M:%S)") [check-ims] %s\n' "$*"
+  timestamp=$(date +"(%m-%d %H:%M:%S)")"
+  printf "%s [check-ims] %s\n" "$timestamp" "$*"
 }
 
 error() {
-  printf '$(date +"(%m-%d %H:%M:%S)") [check-ims] ERROR: %s\n' "$*" >&2
+  timestamp=$(date +"(%m-%d %H:%M:%S)")"
+  printf '%s [check-ims] ERROR: %s\n' "$timestamp" "$*" >&2
 }
 
-## IMS health checking is optional.
+  ## IMS health checking is optional.
 if [[ -z "${imsInterface}" ]]; then
   info "imsInterface is unset; IMS health check disabled"
   exit 0
