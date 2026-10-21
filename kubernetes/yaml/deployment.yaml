@@ -122,6 +122,7 @@ spec:
 
           volumeMounts:
             - name: generated-ue-config
+              subPath: nr-ue.conf
               mountPath: /etc/ue/ue.conf
               readOnly: true
 
