@@ -1,10 +1,10 @@
 from flask import Blueprint, current_app, jsonify, request, url_for
-from sqlalchemy import select
 from werkzeug.exceptions import HTTPException
 
 from ..extensions import db
 from ..models import Message
 from ..services.messaging import queue_outgoing_message
+from ..services.message_history import recent_messages
 from ..ims.config import SipSettings, sip_uri
 
 api = Blueprint("api", __name__, url_prefix="/api/v1")
@@ -43,8 +43,8 @@ def list_messages():
             raise ValueError
     except ValueError:
         return jsonify(error={"code": 400, "message": "limit must be 1–100 and offset nonnegative."}), 400
-    messages = db.session.scalars(select(Message).order_by(Message.id.desc()).limit(limit).offset(offset))
-    return jsonify(messages=[message.to_dict() for message in messages], limit=limit, offset=offset)
+    messages = recent_messages(current_app.config['IMS_ACCOUNT_URI'], limit, offset)
+    return jsonify(messages=messages, limit=limit, offset=offset)
 
 
 @api.get("/messages/<int:message_id>")

@@ -100,6 +100,8 @@ The recipient must be a `sip:` URI of at most 128 characters; body must be nonbl
 
 Statuses are `queued` (waiting for the listener/registration), `sending`, `sent` (SIP 2xx acceptance, not a read receipt), `failed` (local send failure or SIP rejection), `unknown` (timeout or interrupted attempt), and `received`. Historical `simulated` records remain readable. No database schema migration is required. Unknown attempts are not automatically resent, to avoid duplicates.
 
+Recent messages displays self-addressed traffic as one received entry labeled `self`: both sender and recipient must match this instance's SIP identity. Outgoing self-addressed records are excluded before the list's limit and offset are applied, so only receipts count toward the latest 20. The underlying records and delivery statuses are retained; `/messages/<id>` still returns the original status. Repeated received messages are kept as separate entries, even when their text is identical.
+
 ## Structure and extension points
 
 ```text

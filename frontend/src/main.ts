@@ -58,9 +58,8 @@ interface UeInfo { available: boolean; imsi: string | null; pdu_sessions: { id: 
           <p role="status" class="mb-4 text-red-700">{{ messagesError() }}</p>
           @for (message of messages(); track message.id) {
             <article class="border-t border-slate-100 py-4">
-              <div class="flex justify-between gap-3"><span class="font-medium">Message #{{ message.id }}</span><span class="rounded bg-teal-50 px-2 text-sm text-teal-800">{{ message.status }}</span></div>
+              <div class="flex items-start justify-between gap-3"><h3 class="min-w-0 break-all font-bold">{{ displayAddress(message.sender) }} → {{ displayAddress(message.recipient) }}</h3><span class="shrink-0 rounded bg-teal-50 px-2 text-sm text-teal-800">{{ message.status }}</span></div>
               <time class="mt-1 block text-xs text-slate-500" [attr.datetime]="message.created_at">{{ message.created_at | date:'MMM d, y, h:mm:ss a z' }}</time>
-              <p class="mt-2 break-all text-sm text-slate-500">{{ displayAddress(message.sender) }} → {{ displayAddress(message.recipient) }}</p>
               <p class="mt-2 whitespace-pre-wrap break-words">{{ message.body }}</p>
             </article>
           } @empty { <p class="py-8 text-slate-500">No messages loaded. Send or receive a SIP text message.</p> }

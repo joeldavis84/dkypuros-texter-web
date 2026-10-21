@@ -79,3 +79,55 @@ def test_unconfigured_account_does_not_queue(app):
     assert client.get('/api/v1/sip-account').json['enabled'] is False
     assert client.post('/api/v1/messages', json={'recipient': 'sip:bob@test', 'body': 'hello'}).status_code == 503
     assert client.get('/api/v1/messages').json['messages'] == []
+
+
+def test_self_history_filters_before_limit_and_offset(app):
+    from app.models import Message
+    with app.app_context():
+        received_ids = []
+        for number in range(25):
+            db.session.add(Message(sender='sip:alice@example.test', recipient='sip:alice@example.test',
+                                   body=f'loopback {number}', status='sent'))
+            received = Message(sender='"Alice" <sip:alice@EXAMPLE.TEST>',
+                               recipient='<sip:alice@example.test;transport=udp>',
+                               body=f'loopback {number}', status='received')
+            db.session.add(received)
+            db.session.flush()
+            received_ids.append(received.id)
+        db.session.commit()
+    client = app.test_client()
+    first = client.get('/api/v1/messages').json['messages']
+    assert len(first) == 20
+    assert [row['id'] for row in first] == received_ids[::-1][:20]
+    assert all(row['status'] == 'self' for row in first)
+    second = client.get('/api/v1/messages?offset=20').json['messages']
+    assert [row['id'] for row in second] == received_ids[::-1][20:]
+    # Presentation does not alter stored delivery state or detail API results.
+    assert client.get(f'/api/v1/messages/{received_ids[0]}').json['status'] == 'received'
+    with app.app_context():
+        assert db.session.query(Message).count() == 50
+        assert db.session.query(Message).filter_by(status='sent').count() == 25
+
+
+def test_history_preserves_nonself_and_repeated_receipts(app):
+    from app.models import Message
+    with app.app_context():
+        records = [
+            ('sip:alice@example.test', 'sip:bob@example.test', 'sent'),
+            ('sip:bob@example.test', 'sip:alice@example.test', 'received'),
+            ('sip:bob@example.test', 'sip:bob@example.test', 'received'),
+            ('sip:Alice@example.test', 'sip:alice@example.test', 'received'),
+            ('sip:alice@example.test', 'sip:alice@example.test', 'received'),
+            ('sip:alice@example.test', 'sip:alice@example.test', 'received'),
+        ]
+        for sender, recipient, status in records:
+            db.session.add(Message(sender=sender, recipient=recipient, body='identical text', status=status))
+        for status in ('queued', 'sending', 'sent', 'failed', 'unknown'):
+            db.session.add(Message(sender='sip:alice@example.test', recipient='sip:alice@example.test',
+                                   body='outgoing self copy', status=status))
+        db.session.commit()
+    rows = app.test_client().get('/api/v1/messages').json['messages']
+    assert [row['status'] for row in rows] == ['self', 'self', 'received', 'received', 'received', 'sent']
+    # Without a configured identity, no record is hidden or relabeled.
+    app.config['IMS_ACCOUNT_URI'] = ''
+    assert len(app.test_client().get('/api/v1/messages').json['messages']) == 11
