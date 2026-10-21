@@ -50,6 +50,10 @@ The image builds the Angular frontend and PJSUA2 bindings, installs Python 3.11 
 
 The init container continues to override the image command with `/app/bin/generate-config.py`, which writes the UE configuration to `/generated/nr-ue.conf` on the shared volume. It does not start the web server or SIP listener.
 
+## UE configuration display
+
+At application startup, the backend reads `/etc/ue/ue.conf` and extracts the IMSI and each PDU session's `id` and `dnn` from `uicc0`. The web page loads this snapshot from `/api/v1/ue-info` and displays it below the header. The file must be readable inside the web container; `UE_CONFIG_PATH` can override the path for local development. Restart the application after changing the file. Missing or malformed configuration displays as unavailable without preventing startup. The API never includes the authentication key, OPC, or raw configuration. These are configured sessions, not live session status.
+
 ## REST API
 
 All API routes use `/api/v1` and return JSON, including HTTP errors (`{"error":{"code":400,"message":"..."}}`).
@@ -57,6 +61,7 @@ All API routes use `/api/v1` and return JSON, including HTTP errors (`{"error":{
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/health` | Process liveness and SIP mode (not database/IMS readiness) |
+| GET | `/ue-info` | Startup snapshot of IMSI and PDU IDs/DNNs, or unavailable |
 | GET | `/sip-account` | Configured sender identity and whether SIP settings are valid; not registration status |
 | POST | `/messages` | Queue an outgoing text SIP message; returns 202 and a `Location` header |
 | GET | `/messages?limit=20&offset=0` | Incoming and outgoing messages, newest first; limit 1–100, offset ≥ 0 |

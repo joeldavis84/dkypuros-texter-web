@@ -29,6 +29,11 @@ def sip_account():
     return jsonify(account_uri=settings.account_uri, enabled=True)
 
 
+@api.get("/ue-info")
+def ue_info():
+    return jsonify(current_app.extensions['ue_info'])
+
+
 @api.get("/messages")
 def list_messages():
     try:

@@ -7,6 +7,7 @@ import { DatePipe } from '@angular/common';
 import { EMPTY, Subject, catchError, exhaustMap, merge, timeout, timer } from 'rxjs';
 
 interface Message { id: number; sender: string; recipient: string; body: string; status: string; created_at: string; }
+interface UeInfo { available: boolean; imsi: string | null; pdu_sessions: { id: number; dnn: string }[]; }
 
 @Component({
   selector: 'app-root', standalone: true, imports: [FormsModule, DatePipe],
@@ -16,6 +17,24 @@ interface Message { id: number; sender: string; recipient: string; body: string;
         <h1 class="mt-3 text-4xl font-bold">5G messaging automation</h1>
         <p class="mt-3 text-slate-600">Explore IMS messaging workflows for 5G network automation.</p>
       </header>
+      <details class="mb-8 rounded-2xl border border-slate-200 bg-white p-6">
+        <summary class="cursor-pointer text-xl font-semibold">UE configuration</summary>
+        <div class="mt-4">
+        @if (ueInfo(); as ue) {
+          @if (ue.available) {
+            <p class="mb-4"><span class="text-slate-500">IMSI</span> <span class="ml-3 break-all font-mono">{{ ue.imsi }}</span></p>
+            <table class="w-full text-left">
+              <thead><tr><th scope="col" class="pb-2">PDU ID</th><th scope="col" class="pb-2">PDU DNN</th></tr></thead>
+              <tbody>
+                @for (session of ue.pdu_sessions; track $index) {
+                  <tr class="border-t border-slate-100"><td class="py-2">{{ session.id }}</td><td class="break-all py-2">{{ session.dnn }}</td></tr>
+                } @empty { <tr><td colspan="2" class="py-2 text-slate-500">No PDU sessions configured.</td></tr> }
+              </tbody>
+            </table>
+          } @else { <p class="text-slate-500">UE configuration is unavailable.</p> }
+        } @else { <p role="status" class="text-slate-500">{{ ueInfoError() || 'Loading UE configuration…' }}</p> }
+        </div>
+      </details>
       <p class="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">Send text messages through IMS. Incoming messages and send status update automatically below. “Sent” means accepted by SIP, not read by the recipient.</p>
       <p role="alert" class="mb-4 text-red-700">{{ error() }}</p>
       <div class="grid gap-8 md:grid-cols-2">
@@ -58,8 +77,16 @@ class AppComponent {
   error = signal('');
   notice = signal('');
   sender = signal('');
+  ueInfo = signal<UeInfo | null>(null);
+  ueInfoError = signal('');
   recipient = ''; body = '';
   constructor() {
+    this.http.get<UeInfo>('/api/v1/ue-info').pipe(
+      timeout(10000), takeUntilDestroyed()
+    ).subscribe({
+      next: info => this.ueInfo.set(info),
+      error: () => this.ueInfoError.set('Unable to load UE configuration.')
+    });
     this.http.get<{ account_uri: string; enabled: boolean }>('/api/v1/sip-account').pipe(
       takeUntilDestroyed()
     ).subscribe({

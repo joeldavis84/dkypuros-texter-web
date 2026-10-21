@@ -13,11 +13,14 @@ def create_app(test_config=None):
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         MAX_CONTENT_LENGTH=16 * 1024,
         FRONTEND_DIST=Path(__file__).resolve().parent.parent / "frontend/dist/browser",
+        UE_CONFIG_PATH=os.getenv("UE_CONFIG_PATH", "/etc/ue/ue.conf"),
     )
     from .ims.config import environment_config
     app.config.update(environment_config(os.environ))
     if test_config:
         app.config.update(test_config)
+    from .ue_config import load_ue_info
+    app.extensions['ue_info'] = load_ue_info(app.config['UE_CONFIG_PATH'])
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     db.init_app(app)
 
