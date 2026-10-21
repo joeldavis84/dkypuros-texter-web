@@ -96,3 +96,11 @@ oc exec POD -c web -- tcpdump -ni any -s0 -A 'udp and (port 5060 or port 5062)'
 ```
 
 Check whether MESSAGE goes to the configured proxy, whether a response returns, and whether an incoming MESSAGE is forwarded to the current UE address. Check Kamailio's registration/contact records for stale or competing registrations of the same account. Packet captures include message contents; use test text. Confirm the last Contact URI, not only the REGISTER 200 response.
+
+Recent-message sender → recipient headings show a native hover tooltip with the
+stored SIP branch. Incoming MESSAGE callbacks supply the top Via branch; outgoing
+MESSAGE status callbacks supply it from the SIP response. This identifies the
+transaction on the observed hop (a proxy can use a different branch on another
+hop). Historical messages and sends without a response show “SIP branch
+unavailable”. Only the branch is stored, not the raw SIP headers. Startup creates
+a separate metadata table automatically, preserving existing message rows.

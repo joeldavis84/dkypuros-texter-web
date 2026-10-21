@@ -52,13 +52,16 @@ def test_api_to_pjsua_and_out_of_order_responses(app):
         assert status(app, first) == status(app, second) == 'sending'
         # Same recipient, reverse response order: correlate by token, not URI.
         for param, code in ((params[1], 404), (params[0], 202)):
-            transport.account.onInstantMessageStatus(NS(userData=param.userData, toUri='sip:bob@test', code=code))
+            transport.account.onInstantMessageStatus(NS(userData=param.userData, toUri='sip:bob@test', code=code,
+                rdata=NS(wholeMsg=f'SIP/2.0 {code} Response\r\nVia: SIP/2.0/UDP host;branch=z9hG4bK-{code}\r\n\r\n')))
         with app.app_context():
             for event in events:
                 if event['type'] == 'message_status':
                     outbox.handle_status(event)
         assert status(app, first) == 'sent'
         assert status(app, second) == 'failed'
+        assert app.test_client().get(f'/api/v1/messages/{first}').json['sip_branch'] == 'z9hG4bK-202'
+        assert app.test_client().get(f'/api/v1/messages/{second}').json['sip_branch'] == 'z9hG4bK-404'
         assert not transport.pending_messages
     finally:
         transport.close()

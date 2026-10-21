@@ -254,3 +254,50 @@ def test_timeout_diagnostics_distinguish_remote_from_local(wire_response, source
         assert 'private message text' not in repr(event)
     finally:
         transport.close()
+
+
+@pytest.mark.parametrize(('raw', 'expected'), [
+    ('MESSAGE sip:a@test SIP/2.0\r\nVia: SIP/2.0/UDP proxy;branch=z9hG4bK-first\r\nVia: SIP/2.0/UDP sender;branch=second\r\n\r\nbody', 'z9hG4bK-first'),
+    ('SIP/2.0 200 OK\r\nv: SIP/2.0/UDP host;\r\n branch=z9hG4bK-folded, SIP/2.0/UDP other;branch=other\r\n\r\n', 'z9hG4bK-folded'),
+    ('MESSAGE sip:a@test SIP/2.0\r\nVia: SIP/2.0/UDP host\r\nVia: SIP/2.0/UDP other;branch=other\r\n\r\n', None),
+    ('MESSAGE sip:a@test SIP/2.0\r\n\r\nVia: SIP/2.0/UDP host;branch=body', None),
+    ('', None),
+])
+def test_message_branch(raw, expected):
+    from app.ims.pjsua import message_branch
+    assert message_branch(NS(wholeMsg=raw)) == expected
+    assert message_branch(None) is None
+
+
+def test_received_branch_persisted(tmp_path):
+    from app.blueprints.ims import handle_event
+    from app.extensions import db
+    app = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': 'sqlite:///' + str(tmp_path / 'branch.db')})
+    events = []
+    transport = PjsuaTransport(SipSettings('sip:a@test'), events.append, fake_binding())
+    transport.start()
+    try:
+        transport.account.onInstantMessage(NS(
+            fromUri='sip:b@test', toUri='sip:a@test', contentType='text/plain', msgBody='hello',
+            rdata=NS(wholeMsg='MESSAGE sip:a@test SIP/2.0\r\nVia: SIP/2.0/UDP host;branch=z9hG4bK-incoming\r\n\r\nhello')))
+        with app.app_context():
+            db.create_all()
+            handle_event(events[0])
+        assert app.test_client().get('/api/v1/messages').json['messages'][0]['sip_branch'] == 'z9hG4bK-incoming'
+    finally:
+        transport.close()
+
+
+def test_branch_metadata_added_to_existing_database(tmp_path):
+    import sqlite3
+    from app.extensions import db
+    path = tmp_path / 'existing.db'
+    with sqlite3.connect(path) as connection:
+        connection.execute('CREATE TABLE message (id INTEGER PRIMARY KEY, sender VARCHAR(128), recipient VARCHAR(128), body TEXT, status VARCHAR(32), created_at DATETIME)')
+        connection.execute("INSERT INTO message VALUES (1, 'sip:b@test', 'sip:a@test', 'existing', 'received', '2026-10-20 12:00:00')")
+    app = create_app({'TESTING': True, 'SQLALCHEMY_DATABASE_URI': 'sqlite:///' + str(path)})
+    with app.app_context():
+        db.create_all()
+    message = app.test_client().get('/api/v1/messages/1').json
+    assert message['body'] == 'existing'
+    assert message['sip_branch'] is None

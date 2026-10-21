@@ -1,8 +1,23 @@
 """Optional PJSUA2 adapter. text/plain SIP messages are NOT encoded IMS SMS."""
 import importlib
+import re
 import threading
 
 from .config import sip_uri
+
+
+def message_branch(rdata):
+    """Read only the top Via branch, never message content or lower proxy hops."""
+    raw = getattr(rdata, "wholeMsg", "") or ""
+    headers = re.split(r"\r?\n\r?\n", raw, maxsplit=1)[0]
+    headers = re.sub(r"\r?\n[ \t]+", " ", headers)
+    for line in headers.splitlines()[1:]:
+        name, separator, value = line.partition(":")
+        if separator and name.strip().lower() in ("via", "v"):
+            top_via = value.split(",", 1)[0]
+            match = re.search(r";\s*branch\s*=\s*([^;\s,]+)", top_via, re.IGNORECASE)
+            return match.group(1) if match else None
+    return None
 
 
 def load_binding():
@@ -46,7 +61,8 @@ class PjsuaTransport:
             def onInstantMessage(self, prm):
                 emit({'type': 'incoming_message', 'sender': prm.fromUri,
                       'recipient': prm.toUri, 'content_type': prm.contentType,
-                      'body': prm.msgBody})
+                      'body': prm.msgBody,
+                      'sip_branch': message_branch(getattr(prm, 'rdata', None))})
 
             def onInstantMessageStatus(self, prm):
                 # A SIP response is not an SMS delivery receipt.
@@ -60,6 +76,7 @@ class PjsuaTransport:
                     # Do not log wholeMsg: it may contain message text or credentials.
                     'response_received': bool(getattr(response, 'wholeMsg', '')),
                     'response_source': getattr(response, 'srcAddress', ''),
+                    'sip_branch': message_branch(response),
                 }
                 if entry is not None:
                     event['message_id'] = entry[1]

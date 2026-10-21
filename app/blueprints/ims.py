@@ -29,7 +29,8 @@ def handle_event(event, include_body=False):
             event.pop('body', None)
         else:
             try:
-                message = record_received_message(event['sender'], event['recipient'], event['body'])
+                message = record_received_message(event['sender'], event['recipient'], event['body'],
+                                                  sip_branch=event.get('sip_branch'))
                 event.update(status='received', persisted=True, message_id=message.id)
             except SQLAlchemyError:
                 db.session.rollback()

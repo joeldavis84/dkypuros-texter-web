@@ -8,7 +8,7 @@ import time
 from sqlalchemy import select, update
 
 from ..extensions import db
-from ..models import Message
+from ..models import Message, MessageSipMetadata
 
 
 class Outbox:
@@ -28,11 +28,13 @@ class Outbox:
         db.session.commit()
         db.session.remove()
 
-    def set_status(self, message_id, status):
+    def set_status(self, message_id, status, sip_branch=None):
         result = db.session.execute(update(Message).where(
             Message.id == message_id, Message.sender == self.sender,
             Message.status.in_(('sending', 'unknown')),
         ).values(status=status))
+        if result.rowcount and sip_branch:
+            db.session.merge(MessageSipMetadata(message_id=message_id, branch=sip_branch))
         db.session.commit()
         db.session.remove()
         return bool(result.rowcount)
@@ -42,7 +44,7 @@ class Outbox:
         if message_id is None or code < 200:
             return
         status = 'sent' if 200 <= code < 300 else ('unknown' if code == 408 else 'failed')
-        if self.set_status(message_id, status):
+        if self.set_status(message_id, status, event.get('sip_branch')):
             event['status'] = status
         self.inflight.pop(message_id, None)
 

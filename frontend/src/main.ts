@@ -6,7 +6,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { EMPTY, Subject, catchError, exhaustMap, merge, timeout, timer } from 'rxjs';
 
-interface Message { id: number; sender: string; recipient: string; body: string; status: string; created_at: string; }
+interface Message { id: number; sender: string; recipient: string; body: string; status: string; created_at: string; sip_branch: string | null; }
 interface UeInfo { available: boolean; imsi: string | null; pdu_sessions: { id: number; dnn: string }[]; }
 
 @Component({
@@ -58,7 +58,7 @@ interface UeInfo { available: boolean; imsi: string | null; pdu_sessions: { id: 
           <p role="status" class="mb-4 text-red-700">{{ messagesError() }}</p>
           @for (message of messages(); track message.id) {
             <article class="border-t border-slate-100 py-4">
-              <div class="flex items-start justify-between gap-3"><h3 class="min-w-0 break-all font-bold">{{ displayAddress(message.sender) }} → {{ displayAddress(message.recipient) }}</h3><span class="shrink-0 rounded bg-teal-50 px-2 text-sm text-teal-800">{{ message.status }}</span></div>
+              <div class="flex items-start justify-between gap-3"><h3 class="min-w-0 break-all font-bold" [attr.title]="message.sip_branch ? 'SIP branch: ' + message.sip_branch : 'SIP branch unavailable'">{{ displayAddress(message.sender) }} → {{ displayAddress(message.recipient) }}</h3><span class="shrink-0 rounded bg-teal-50 px-2 text-sm text-teal-800">{{ message.status }}</span></div>
               <time class="mt-1 block text-xs text-slate-500" [attr.datetime]="message.created_at">{{ message.created_at | date:'MMM d, y, h:mm:ss a z' }}</time>
               <p class="mt-2 whitespace-pre-wrap break-words">{{ message.body }}</p>
             </article>
