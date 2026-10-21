@@ -1,10 +1,10 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, ViewChild, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { HttpClient, HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
-import { EMPTY, Subject, catchError, exhaustMap, merge, timeout, timer } from 'rxjs';
+import { EMPTY, Subject, catchError, exhaustMap, filter, merge, take, timeout, timer } from 'rxjs';
 
 interface Message { id: number; sender: string; recipient: string; body: string; status: string; created_at: string; sip_branch: string | null; }
 interface UeInfo { available: boolean; imsi: string | null; pdu_sessions: { id: number; dnn: string }[]; }
@@ -35,7 +35,6 @@ interface UeInfo { available: boolean; imsi: string | null; pdu_sessions: { id: 
         } @else { <p role="status" class="text-slate-500">{{ ueInfoError() || 'Loading UE configuration…' }}</p> }
         </div>
       </details>
-      <p class="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">Send text messages through IMS. Incoming messages and send status update automatically below. “Sent” means accepted by SIP, not read by the recipient.</p>
       <p role="alert" class="mb-4 text-red-700">{{ error() }}</p>
       <div class="grid gap-8 md:grid-cols-2">
         <section class="rounded-2xl border border-slate-200 bg-white p-6">
@@ -48,8 +47,7 @@ interface UeInfo { available: boolean; imsi: string | null; pdu_sessions: { id: 
             </div>
             <label class="block">Recipient<input name="recipient" [(ngModel)]="recipient" required maxlength="128" placeholder="bob@example.test"></label>
             <label class="block">Message<textarea name="body" [(ngModel)]="body" required maxlength="1600" rows="4" placeholder="Hello from the IMS demo"></textarea></label>
-            <button type="submit" [disabled]="form.invalid || saving() || !sender()" class="rounded-lg bg-teal-700 px-5 py-3 font-semibold text-white">{{ saving() ? 'Queuing…' : 'Send message' }}</button>
-            <p role="status" class="text-sm text-teal-800">{{ notice() }}</p>
+            <button type="submit" [disabled]="form.invalid || saving() || !sender()" class="rounded-lg bg-teal-700 px-5 py-3 font-semibold text-white">{{ saving() ? 'Working…' : 'Send message' }}</button>
           </form>
         </section>
         <section class="rounded-2xl border border-slate-200 bg-white p-6">
@@ -65,16 +63,26 @@ interface UeInfo { available: boolean; imsi: string | null; pdu_sessions: { id: 
           } @empty { <p class="py-8 text-slate-500">No messages loaded. Send or receive a SIP text message.</p> }
         </section>
       </div>
-    </main>`
+    </main>
+    <dialog #workingDialog aria-labelledby="working-title" aria-describedby="working-description"
+      (cancel)="$event.preventDefault()"
+      class="m-auto rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xl backdrop:bg-black/40">
+      <div role="status" aria-live="polite" aria-busy="true">
+        <h2 id="working-title" class="text-xl font-semibold">Working</h2>
+        <progress aria-label="Sending message" class="my-5 h-2 w-48 accent-teal-700"></progress>
+        <p id="working-description" class="text-sm text-slate-600">Waiting for SIP to accept your message…</p>
+      </div>
+    </dialog>`
 })
 class AppComponent {
   private http = inject(HttpClient);
+  private destroyRef = inject(DestroyRef);
+  @ViewChild('workingDialog') private workingDialog!: ElementRef<HTMLDialogElement>;
   private refreshRequests = new Subject<void>();
   messages = signal<Message[]>([]);
   messagesError = signal('');
   saving = signal(false);
   error = signal('');
-  notice = signal('');
   sender = signal('');
   ueInfo = signal<UeInfo | null>(null);
   ueInfoError = signal('');
@@ -117,13 +125,43 @@ class AppComponent {
   displayAddress(address: string) {
     return address.trim().replace(/^<([^>]+)>$/, '$1').replace(/(^|<)sip:/gi, '$1');
   }
+  private finishSending(error = '') {
+    this.saving.set(false);
+    this.workingDialog.nativeElement.close();
+    this.error.set(error);
+    this.refresh();
+  }
+  private watchSend(messageId: number) {
+    // Use the detail endpoint: outgoing self-messages are hidden from Recent messages.
+    timer(0, 1000).pipe(
+      exhaustMap(() => this.http.get<Message>('/api/v1/messages/' + messageId).pipe(timeout(10000))),
+      filter(message => !['queued', 'sending'].includes(message.status)),
+      take(1),
+      timeout(60000),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
+      next: message => {
+        if (message.status === 'sent') {
+          this.finishSending();
+        } else if (message.status === 'failed') {
+          this.finishSending('SIP could not send the message. Check Recent messages for its status.');
+        } else {
+          this.finishSending('SIP did not confirm acceptance. The message may have been sent; check its status before retrying.');
+        }
+      },
+      error: () => this.finishSending('Could not confirm SIP acceptance. The message may still be queued or sent; check its status before retrying.')
+    });
+  }
   submit() {
     if (this.saving() || !this.sender()) return;
-    this.saving.set(true); this.error.set(''); this.notice.set('');
+    this.saving.set(true); this.error.set('');
+    this.workingDialog.nativeElement.showModal();
     const recipient = 'sip:' + this.recipient.trim().replace(/^sip:/i, '');
-    this.http.post<Message>('/api/v1/messages', { sender: this.sender(), recipient, body: this.body }).subscribe({
-      next: message => { this.saving.set(false); this.body = ''; this.notice.set('Message #' + message.id + ' queued. Check its send status in Recent messages.'); this.refresh(); },
-      error: (err: HttpErrorResponse) => { this.saving.set(false); this.error.set(err.error?.error?.message ?? 'Could not confirm submission. Check Recent messages before trying again.'); }
+    this.http.post<Message>('/api/v1/messages', { sender: this.sender(), recipient, body: this.body }).pipe(
+      timeout(10000), takeUntilDestroyed(this.destroyRef)
+    ).subscribe({
+      next: message => { this.body = ''; this.refresh(); this.watchSend(message.id); },
+      error: (err: HttpErrorResponse) => this.finishSending(err.error?.error?.message ?? 'Could not confirm submission. Check Recent messages before trying again.')
     });
   }
 }
