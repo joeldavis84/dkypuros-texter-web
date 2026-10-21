@@ -120,6 +120,11 @@ spec:
             - name: sipPort
               value: "5060"
 
+          volumeMounts:
+            - name: generated-ue-config
+              mountPath: /etc/ue/ue.conf
+              readOnly: true
+
           ports:
             - name: http
               containerPort: 8080
