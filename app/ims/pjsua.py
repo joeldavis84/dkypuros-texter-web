@@ -90,6 +90,7 @@ class PjsuaTransport:
             config.natConfig.viaRewriteUse = 0
             config.idUri = self.settings.account_uri
             config.regConfig.registrarUri = self.settings.registrar_uri
+            config.regConfig.delayBeforeRefreshSec = 25
             config.sipConfig.transportId = transport_id
             if self.settings.proxy_uri:
                 config.sipConfig.proxies.append(self.settings.proxy_uri)
