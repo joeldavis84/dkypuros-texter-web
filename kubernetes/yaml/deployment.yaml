@@ -14,6 +14,9 @@ spec:
 
   template:
     metadata:
+      annotations:
+        oc.kubernetes.io/default-container: web
+        kubectl.kubernetes.io/default-container: web
       labels:
         app: duranta-ue1
 
