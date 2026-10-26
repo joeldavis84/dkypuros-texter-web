@@ -6,6 +6,9 @@ The web form sends `text/plain` SIP messages through the configured IMS proxy us
 
 ## Local setup
 
+For runnable REST API examples covering simple texts, local LLM completions, and
+HTTP service alerts, see [code-examples/README.md](code-examples/README.md).
+
 Requires Python 3.11+ and Node.js 22.12+ (22.x) or 24.x with npm.
 
 From the repository root:
