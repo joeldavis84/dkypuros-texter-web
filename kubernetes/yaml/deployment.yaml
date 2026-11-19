@@ -22,6 +22,9 @@ spec:
 
     spec:
 
+      os:
+        name: linux
+
       serviceAccountName: duranta-ue
 
       ## Render the subscriber-specific nr-ue.conf before the UE starts.
@@ -57,6 +60,8 @@ spec:
           ##       source of truth
         - name: softmodem
           image: docker.io/oaisoftwarealliance/oai-nr-ue:2026.w39
+          lifecycle:
+            stopSignal: SIGINT
 
           args:
           - RFSIM_IP_ADDRESS=$(getent hosts $RFSIM_HOST | awk '{print $1}'); RFSIM_IP_ADDRESS=$(if
